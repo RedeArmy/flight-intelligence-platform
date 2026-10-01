@@ -41,18 +41,31 @@ Configuration is read from environment variables at startup (Constitution sectio
 
 Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 
+## Redis and rate limiting
+| Key | Type | Default | Required | Meaning |
+|-----|------|---------|----------|---------|
+| `REDIS_ADDR` | host:port | empty | no | Redis for shared rate-limit counters (ADR-004, ADR-032). Empty disables Redis: the API runs and limits per instance. |
+| `REDIS_TLS` | `true` or `false` | `true` | no | Use TLS to Redis. Must be `true` in staging and production when `REDIS_ADDR` is set. |
+| `REDIS_TIMEOUT` | duration | `100ms` | no | Dial, read and write timeout. Short on purpose: a slow Redis must not slow requests, the limiter falls back to local limits. |
+| `RATE_LIMIT_IP_PER_MIN` | integer | `300` | no | Requests per minute from one address to protected routes, checked before authentication. |
+| `RATE_LIMIT_CLIENT_PER_MIN` | integer | `600` | no | Requests per minute of one authenticated client and operation class. |
+| `RATE_LIMIT_AUTH_FAILURES_PER_MIN` | integer | `10` | no | Failed authentications per minute from one address before further attempts get `429`. |
+
+Limits are token buckets: the number is both the burst size and the average per minute.
+
 ## Secrets (secret store, never configuration)
 | Secret | Read by | Purpose |
 |--------|---------|---------|
 | `postgres_password` | `cmd/api` | Password of the runtime role. |
 | `postgres_migrator_password` | `cmd/migrate` | Password of the DDL role. |
 | `postgres_admin_password` | `cmd/keyctl` | Password of the operator role. |
+| `redis_password` | `cmd/api` | Optional password of Redis. Absent means no password (local Redis). |
 | `api_key_pepper` | `cmd/api`, `cmd/keyctl` | Server-side pepper of the API key hash, at least 32 bytes (ADR-027). The API refuses to start without it. Rotating it invalidates every key. |
 
 `make local-secrets` generates all of them locally.
 
 ## Added by later E1 slices
-Redis, rate limits and telemetry keys arrive with their slices (S4b and S5) and are added to this table in the same PR.
+Telemetry keys arrive with S5 and are added to this table in the same PR.
 
 ## Notes
 - `HTTP_ADDR` and `HTTP_OPERATOR_ADDR` may both use port `0` (any free port, for tests and ephemeral runs); otherwise they must differ.

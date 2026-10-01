@@ -91,11 +91,11 @@ db-up: ## Start the local PostgreSQL (needs make local-secrets first)
 db-down: ## Stop the local PostgreSQL (keeps its data volume)
 	$(COMPOSE) stop postgres
 
-test-db: ## Start the throw-away integration-test PostgreSQL on 127.0.0.1:55432 (RAM-backed, trust auth)
-	$(COMPOSE) --profile test up -d --wait postgres-test
+test-db: ## Start the throw-away integration-test PostgreSQL (127.0.0.1:55432) and Redis (127.0.0.1:56379), RAM-backed
+	$(COMPOSE) --profile test up -d --wait postgres-test redis-test
 
-test-db-down: ## Remove the throw-away integration-test PostgreSQL
-	$(COMPOSE) --profile test rm -fsv postgres-test
+test-db-down: ## Remove the throw-away integration-test PostgreSQL and Redis
+	$(COMPOSE) --profile test rm -fsv postgres-test redis-test
 
 migrate: ## Apply database migrations to the local PostgreSQL as fip_migrator
 	go run ./cmd/migrate up
@@ -118,6 +118,7 @@ test-race: ## Unit tests with the race detector (needs a C toolchain on Windows)
 # The DSN is set explicitly on purpose: when TEST_POSTGRES_DSN is set the harness FAILS if the database is unreachable
 # instead of silently skipping, so a missing test database can never look like a green run.
 integration: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable
+integration: export TEST_REDIS_ADDR ?= 127.0.0.1:56379
 integration: ## Integration tests against PostgreSQL (run make test-db first, or set TEST_POSTGRES_DSN)
 	go test -tags integration -count=1 ./...
 
@@ -128,6 +129,8 @@ coverage: ## Unit tests only, with a coverage profile (quick local check)
 # PostgreSQL. -coverpkg=./... credits a package for code that tests in other packages exercise, and covmerge then writes
 # each block once (go test repeats a block once per test binary, and readers may keep only one of the copies).
 coverage-integration: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable
+coverage-integration: export TEST_REDIS_ADDR ?= 127.0.0.1:56379
+integration: export TEST_REDIS_ADDR ?= 127.0.0.1:56379
 coverage-integration: ## Unit + integration coverage, merged into coverage.out (needs make test-db)
 	go test -tags integration -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.raw ./...
 	go run ./scripts/covmerge -in coverage.raw -out coverage.out

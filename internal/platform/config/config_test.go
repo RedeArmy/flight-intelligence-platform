@@ -262,3 +262,43 @@ func TestPostgresCrossFieldRules(t *testing.T) {
 		t.Errorf("verify-full must be accepted in production: %v", err)
 	}
 }
+
+func TestRedisAndRateLimitDefaults(t *testing.T) {
+	cfg := mustLoad(t, map[string]string{"APP_ENV": "local"})
+	if cfg.Redis.Addr != "" || !cfg.Redis.TLS || cfg.Redis.Timeout != 100*time.Millisecond {
+		t.Errorf("redis defaults = %+v: Redis must be off by default, with TLS on and a short timeout", cfg.Redis)
+	}
+	if l := cfg.Limits; l.IPPerMinute != 300 || l.ClientPerMinute != 600 || l.AuthFailuresPerMinute != 10 {
+		t.Errorf("limit defaults = %+v", l)
+	}
+	cfg = mustLoad(t, map[string]string{"APP_ENV": "local", "REDIS_ADDR": "cache.internal:6380", "REDIS_TLS": "false", "RATE_LIMIT_IP_PER_MIN": "50"})
+	if cfg.Redis.Addr != "cache.internal:6380" || cfg.Redis.TLS || cfg.Limits.IPPerMinute != 50 {
+		t.Errorf("explicit values = %+v %+v", cfg.Redis, cfg.Limits)
+	}
+}
+
+func TestRedisAndRateLimitRules(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		key  string
+	}{
+		{"address without port", map[string]string{"APP_ENV": "local", "REDIS_ADDR": "cache.internal"}, "REDIS_ADDR"},
+		{"bad tls value", map[string]string{"APP_ENV": "local", "REDIS_TLS": "maybe"}, "REDIS_TLS"},
+		{"plaintext Redis in production", map[string]string{"APP_ENV": "production", "POSTGRES_SSLMODE": "verify-full", "REDIS_ADDR": "cache:6379", "REDIS_TLS": "false"}, "REDIS_TLS"},
+		{"zero limit", map[string]string{"APP_ENV": "local", "RATE_LIMIT_CLIENT_PER_MIN": "0"}, "RATE_LIMIT_CLIENT_PER_MIN"},
+		{"non-numeric limit", map[string]string{"APP_ENV": "local", "RATE_LIMIT_AUTH_FAILURES_PER_MIN": "many"}, "RATE_LIMIT_AUTH_FAILURES_PER_MIN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(mapLookup(tc.env))
+			if _, ok := issuesOf(t, err)[tc.key]; !ok {
+				t.Fatalf("expected an issue for %s, got %v", tc.key, err)
+			}
+		})
+	}
+	// Without Redis configured, the TLS flag is irrelevant even in production.
+	if _, err := Load(mapLookup(map[string]string{"APP_ENV": "production", "POSTGRES_SSLMODE": "verify-full", "REDIS_TLS": "false"})); err != nil {
+		t.Errorf("REDIS_TLS only matters when REDIS_ADDR is set: %v", err)
+	}
+}
