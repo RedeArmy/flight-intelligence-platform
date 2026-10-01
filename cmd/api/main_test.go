@@ -17,13 +17,40 @@ func lookupOf(m map[string]string) config.Lookup {
 	return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
 }
 
-func baseEnv() map[string]string {
-	return map[string]string{
-		"APP_ENV":            "test",
-		"LOG_LEVEL":          "error",
-		"HTTP_ADDR":          "127.0.0.1:0",
-		"HTTP_OPERATOR_ADDR": "127.0.0.1:0",
+// baseEnv is a complete environment for a unit test: random ports, an unreachable database (port 1), and a secrets
+// directory holding a generated runtime password, so no credential literal appears in the test.
+func baseEnv(t *testing.T) map[string]string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := writeFile(dir+"/postgres_password", "generated-"+strings.ReplaceAll(t.Name(), "/", "-")); err != nil {
+		t.Fatal(err)
 	}
+	return map[string]string{
+		"APP_ENV":                  "test",
+		"LOG_LEVEL":                "error",
+		"HTTP_ADDR":                "127.0.0.1:0",
+		"HTTP_OPERATOR_ADDR":       "127.0.0.1:0",
+		"POSTGRES_HOST":            "127.0.0.1",
+		"POSTGRES_PORT":            "1",
+		"POSTGRES_SSLMODE":         "disable",
+		"POSTGRES_CONNECT_TIMEOUT": "200ms",
+		"SECRETS_DIR":              dir,
+	}
+}
+
+func httpGetBody(t *testing.T, url string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
 }
 
 func httpGet(t *testing.T, url string) int {
@@ -67,7 +94,7 @@ func TestRunServesThenStopsOnCancel(t *testing.T) {
 	res := make(chan error, 1)
 	go func() {
 		res <- run(ctx, runOptions{
-			Lookup: lookupOf(baseEnv()),
+			Lookup: lookupOf(baseEnv(t)),
 			Stdout: io.Discard,
 			OnListening: func(p, o net.Addr) {
 				addrs <- [2]net.Addr{p, o}
@@ -87,8 +114,10 @@ func TestRunServesThenStopsOnCancel(t *testing.T) {
 	if code := httpGet(t, "http://"+a[0].String()+"/healthz"); code != http.StatusOK {
 		t.Errorf("healthz = %d", code)
 	}
-	if code := httpGet(t, "http://"+a[0].String()+"/readyz"); code != http.StatusOK {
-		t.Errorf("readyz = %d", code)
+	// The database is unreachable (port 1): the API must still start, and readiness must say so truthfully.
+	code, body := httpGetBody(t, "http://"+a[0].String()+"/readyz")
+	if code != http.StatusServiceUnavailable || !strings.Contains(body, `"not_ready"`) || !strings.Contains(body, `"postgres":"failed"`) {
+		t.Errorf("readyz = %d %s; want 503 not_ready with postgres failed", code, body)
 	}
 	// No authenticator is wired yet, so protected routes are closed (deny by default).
 	if code := httpGet(t, "http://"+a[0].String()+"/v1/whoami"); code != http.StatusUnauthorized {
@@ -115,11 +144,40 @@ func TestRunReportsABindFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer taken.Close()
-	env := baseEnv()
+	env := baseEnv(t)
 	env["HTTP_ADDR"] = taken.Addr().String()
 
 	err = run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "listen on public address") {
+		t.Fatalf("run = %v", err)
+	}
+}
+
+func TestRunFailsFastWithoutTheDatabasePassword(t *testing.T) {
+	env := baseEnv(t)
+	env["SECRETS_DIR"] = t.TempDir() // empty: no postgres_password
+	err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "database password") {
+		t.Fatalf("run = %v", err)
+	}
+}
+
+func TestRunRefusesProductionBecauseNoManagedSecretStoreExistsYet(t *testing.T) {
+	env := baseEnv(t)
+	// Local secret files must never feed a production-like environment (SR-19). The TLS mode is valid here so the
+	// configuration passes and the secret store is what refuses.
+	env["APP_ENV"], env["POSTGRES_SSLMODE"] = "production", "verify-full"
+	err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "production-like") {
+		t.Fatalf("run = %v", err)
+	}
+}
+
+func TestRunRejectsAnInsecureDatabaseModeInProduction(t *testing.T) {
+	env := baseEnv(t)
+	env["APP_ENV"], env["POSTGRES_SSLMODE"] = "staging", "disable"
+	err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "POSTGRES_SSLMODE") {
 		t.Fatalf("run = %v", err)
 	}
 }

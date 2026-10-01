@@ -1,21 +1,31 @@
 // Command api runs the public HTTP API and the operator listener.
 //
-// It is the composition root: it loads configuration, builds the logger and wires the server. Business logic
-// does not live here (ADR-006).
+// It is the composition root: it loads configuration, builds the logger, opens the database pool and wires the server.
+// Business logic does not live here (ADR-006).
 package main
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/config"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
+)
+
+const (
+	appPasswordSecret = "postgres_password"
+	// readinessTimeout bounds each readiness check, so a hung dependency cannot hang the probe.
+	readinessTimeout = 2 * time.Second
 )
 
 func main() {
@@ -52,7 +62,6 @@ func run(ctx context.Context, o runOptions) error {
 	if err != nil {
 		return err
 	}
-
 	logger, err := logging.New(logging.Options{
 		Service: "api",
 		Env:     string(cfg.App.Env),
@@ -65,8 +74,43 @@ func run(ctx context.Context, o runOptions) error {
 		return err
 	}
 
-	health := httpserver.NewHealth(cfg.HTTP.ReadHeaderTimeout) // dependency checks arrive with S3 (PostgreSQL) and S4 (Redis)
-	srv, err := httpserver.New(httpserver.Options{
+	pool, err := openDatabase(ctx, cfg, lookup)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	srv, err := newServer(cfg, logger, pool, o.OnListening)
+	if err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "api starting", "env", string(cfg.App.Env))
+	if err := srv.Run(ctx); err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "api stopped")
+	return nil
+}
+
+// openDatabase reads the runtime password from the secret store and opens the pool. The pool connects lazily: the API
+// starts even if PostgreSQL is still coming up and reports not ready until it answers.
+func openDatabase(ctx context.Context, cfg config.Config, lookup config.Lookup) (*database.Pool, error) {
+	store, err := security.NewLocalStore(cfg.App.Env, lookup, cfg.Secrets.Dir)
+	if err != nil {
+		return nil, err
+	}
+	password, err := store.Get(ctx, appPasswordSecret)
+	if err != nil {
+		return nil, fmt.Errorf("database password: %w", err)
+	}
+	return database.Open(ctx, database.FromConfig(cfg.Postgres, cfg.Postgres.User, password, "api"))
+}
+
+func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
+	health := httpserver.NewHealth(readinessTimeout,
+		httpserver.Check{Name: "postgres", Critical: true, Run: pool.Check},
+	)
+	return httpserver.New(httpserver.Options{
 		Logger: logger,
 		Public: httpserver.NewPublicHandler(httpserver.PublicDeps{
 			Logger:       logger,
@@ -83,16 +127,6 @@ func run(ctx context.Context, o runOptions) error {
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
 		ShutdownTimeout:   cfg.HTTP.ShutdownTimeout,
-		OnListening:       o.OnListening,
+		OnListening:       onListening,
 	})
-	if err != nil {
-		return err
-	}
-
-	logger.InfoContext(ctx, "api starting", "env", string(cfg.App.Env))
-	if err := srv.Run(ctx); err != nil {
-		return err
-	}
-	logger.InfoContext(ctx, "api stopped")
-	return nil
 }
