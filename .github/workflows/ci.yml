@@ -131,7 +131,7 @@ jobs:
       - name: Contract is valid and matches routes and access policies
         run: make openapi
       - name: No breaking changes to /v1 against the base branch
-        run: ./scripts/openapi-breaking.sh origin/main
+        run: sh ./scripts/openapi-breaking.sh origin/main
 
   integration:
     name: integration
