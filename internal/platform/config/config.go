@@ -36,7 +36,24 @@ type Config struct {
 	Log      Log
 	HTTP     HTTP
 	Postgres Postgres
+	Redis    Redis
+	Limits   RateLimits
 	Secrets  Secrets
+}
+
+// Redis configures the optional Redis connection (ADR-004). Redis holds ephemeral state only; without it the API
+// still runs and rate-limits per instance. The password, if any, is the secret redis_password.
+type Redis struct {
+	Addr    string // host:port; empty disables Redis
+	TLS     bool   // required in production-like environments
+	Timeout time.Duration
+}
+
+// RateLimits are the per-minute limits of the token buckets (ADR-032).
+type RateLimits struct {
+	IPPerMinute           int // all requests from one address, checked before authentication
+	ClientPerMinute       int // requests of one authenticated client and operation class
+	AuthFailuresPerMinute int // failed authentications from one address
 }
 
 // Postgres configures database access. Passwords are not configuration: they come from the SecretStore under the
@@ -121,6 +138,8 @@ func build(p *parser) Config {
 		},
 		HTTP:     buildHTTP(p),
 		Postgres: buildPostgres(p),
+		Redis:    buildRedis(p),
+		Limits:   buildLimits(p),
 		Secrets:  Secrets{Dir: p.optional("SECRETS_DIR")},
 	}
 }
@@ -140,6 +159,22 @@ func buildHTTP(p *parser) HTTP {
 
 // sslVerifyFull is the only TLS mode allowed in production-like environments.
 const sslVerifyFull = "verify-full"
+
+func buildRedis(p *parser) Redis {
+	return Redis{
+		Addr:    p.optionalAddr("REDIS_ADDR"),
+		TLS:     p.enum("REDIS_TLS", "true", "true", "false") == "true",
+		Timeout: p.duration("REDIS_TIMEOUT", 100*time.Millisecond),
+	}
+}
+
+func buildLimits(p *parser) RateLimits {
+	return RateLimits{
+		IPPerMinute:           int(p.int64("RATE_LIMIT_IP_PER_MIN", 300, 1, 1_000_000)),
+		ClientPerMinute:       int(p.int64("RATE_LIMIT_CLIENT_PER_MIN", 600, 1, 1_000_000)),
+		AuthFailuresPerMinute: int(p.int64("RATE_LIMIT_AUTH_FAILURES_PER_MIN", 10, 1, 1_000_000)),
+	}
+}
 
 func buildPostgres(p *parser) Postgres {
 	return Postgres{
@@ -170,6 +205,9 @@ func validateCross(p *parser, cfg Config) {
 		p.fail("HTTP_READ_HEADER_TIMEOUT", "must not exceed HTTP_READ_TIMEOUT")
 	}
 	validatePostgres(p, cfg)
+	if cfg.Redis.Addr != "" && !cfg.Redis.TLS && cfg.App.Env.IsProductionLike() {
+		p.fail("REDIS_TLS", "must be true in staging and production")
+	}
 }
 
 func validatePostgres(p *parser, cfg Config) {

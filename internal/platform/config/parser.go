@@ -141,6 +141,14 @@ func (p *parser) int64(key string, def, minValue, maxValue int64) int64 {
 	return n
 }
 
+// optionalAddr is addr for a key that may be left unset: it returns "" when the key is not set.
+func (p *parser) optionalAddr(key string) string {
+	if _, ok := p.raw(key); !ok {
+		return ""
+	}
+	return p.addr(key, "")
+}
+
 // addr validates a listen address of the form host:port (host may be empty).
 func (p *parser) addr(key, def string) string {
 	v, ok := p.value(key, def)

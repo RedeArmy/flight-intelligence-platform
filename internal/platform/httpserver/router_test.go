@@ -185,7 +185,7 @@ func TestRoutesWithoutAPolicyAreRefused(t *testing.T) {
 	tl := newTestLog(t)
 	r := newBaseRouter(tl.Logger)
 	called := false
-	r.With(enforcePolicy(&fakeAuth{principal: Principal{ClientID: "c", Role: RoleAdmin}})).
+	r.With(enforcePolicy(guard{auth: &fakeAuth{principal: Principal{ClientID: "c", Role: RoleAdmin}}})).
 		Get("/v1/unlisted", func(http.ResponseWriter, *http.Request) { called = true })
 
 	rec := doReq(r, http.MethodGet, "/v1/unlisted")

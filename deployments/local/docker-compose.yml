@@ -3,9 +3,10 @@
 #
 #   make local-secrets   generate ./secrets (git-ignored) once
 #   make db-up           start PostgreSQL           (port 5432, loopback only, password auth)
-#   make test-db         start the throw-away test database (port 55432, loopback only, RAM-backed)
+#   make test-db         start the throw-away test PostgreSQL (port 55432) and Redis (port 56379), loopback only, RAM-backed
 name: fip-local
 
+x-redis-image: &redis-image redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
 x-postgres-image: &postgres-image postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 
 services:
@@ -51,6 +52,21 @@ services:
       - /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Throw-away Redis for integration tests: loopback only, no data kept, no password (it holds nothing real).
+  redis-test:
+    profiles: ["test"]
+    image: *redis-image
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 3s
       timeout: 3s
       retries: 20

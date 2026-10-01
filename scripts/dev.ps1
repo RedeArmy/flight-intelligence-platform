@@ -78,8 +78,8 @@ switch ($Target) {
     "local-secrets" { Invoke-Native go @("run", "./scripts/devsecrets") }
     "db-up" { Invoke-Native docker (Compose @("up", "-d", "--wait", "postgres")) }
     "db-down" { Invoke-Native docker (Compose @("stop", "postgres")) }
-    "test-db" { Invoke-Native docker (Compose @("--profile", "test", "up", "-d", "--wait", "postgres-test")) }
-    "test-db-down" { Invoke-Native docker (Compose @("--profile", "test", "rm", "-fsv", "postgres-test")) }
+    "test-db" { Invoke-Native docker (Compose @("--profile", "test", "up", "-d", "--wait", "postgres-test", "redis-test")) }
+    "test-db-down" { Invoke-Native docker (Compose @("--profile", "test", "rm", "-fsv", "postgres-test", "redis-test")) }
     "migrate" { Invoke-Native go @("run", "./cmd/migrate", "up") }
     "migration-check" {
         # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
@@ -93,12 +93,14 @@ switch ($Target) {
     "integration" {
         # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
         if (-not $env:TEST_POSTGRES_DSN) { $env:TEST_POSTGRES_DSN = "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable" }
+        if (-not $env:TEST_REDIS_ADDR) { $env:TEST_REDIS_ADDR = "127.0.0.1:56379" }
         Invoke-Native go @("test", "-tags", "integration", "-count=1", "./...")
     }
     "coverage" { Invoke-Native go @("test", "-count=1", "-covermode=atomic", "-coverprofile=coverage.out", "./...") }
     "coverage-integration" {
         # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
         if (-not $env:TEST_POSTGRES_DSN) { $env:TEST_POSTGRES_DSN = "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable" }
+        if (-not $env:TEST_REDIS_ADDR) { $env:TEST_REDIS_ADDR = "127.0.0.1:56379" }
         Invoke-Native go @("test", "-tags", "integration", "-count=1", "-covermode=atomic", "-coverpkg=./...", "-coverprofile=coverage.raw", "./...")
         Invoke-Native go @("run", "./scripts/covmerge", "-in", "coverage.raw", "-out", "coverage.out")
     }
