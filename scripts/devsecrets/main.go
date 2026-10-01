@@ -22,6 +22,7 @@ var secretNames = []string{
 	"postgres_password",
 	"postgres_admin_password",
 	"postgres_readonly_password",
+	"api_key_pepper",
 }
 
 const secretBytes = 24 // 48 hex characters

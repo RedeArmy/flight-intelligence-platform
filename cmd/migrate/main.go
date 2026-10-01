@@ -14,12 +14,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/config"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/cli"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database/migrate"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
@@ -30,28 +27,14 @@ import (
 // migratorPasswordSecret is the name of the secret in the secret store, not a credential.
 const migratorPasswordSecret = "postgres_migrator_password" // #nosec G101 -- a secret name, not a secret
 
-// main only wires the operating system: signals, the real environment and the process exit code.
-func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := realMain(ctx, os.Args[1:], runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout}, os.Stderr)
-	stop()
-	os.Exit(code)
-}
-
-// realMain runs the command and turns its result into an exit code: 0 on success, 1 with the error on stderr.
-func realMain(ctx context.Context, args []string, o runOptions, stderr io.Writer) int {
-	if err := run(ctx, args, o); err != nil {
-		fmt.Fprintln(stderr, "migrate:", err)
-		return 1
-	}
-	return 0
-}
+func main() { cli.Main("migrate", run) }
 
 // runOptions are the inputs of run, injectable for tests.
-type runOptions struct {
-	Lookup     config.Lookup
-	DotEnvPath string
-	Stdout     io.Writer
+type runOptions = cli.Options
+
+// realMain runs the command and returns its exit code.
+func realMain(ctx context.Context, args []string, o runOptions, stderr io.Writer) int {
+	return cli.RealMain(ctx, "migrate", args, o, stderr, run)
 }
 
 // command is a parsed command line.
@@ -104,11 +87,7 @@ func run(ctx context.Context, args []string, o runOptions) error {
 	if err != nil {
 		return err
 	}
-	lookup, err := config.LookupWithDotEnv(o.DotEnvPath, o.Lookup)
-	if err != nil {
-		return err
-	}
-	cfg, err := config.Load(lookup)
+	cfg, lookup, err := cli.LoadConfig(o)
 	if err != nil {
 		return err
 	}

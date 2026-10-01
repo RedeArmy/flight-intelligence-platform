@@ -15,15 +15,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/config"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 )
 
 const (
 	appPasswordSecret = "postgres_password"
+	pepperSecret      = "api_key_pepper" // #nosec G101 -- a secret name, not a secret
 	// readinessTimeout bounds each readiness check, so a hung dependency cannot hang the probe.
 	readinessTimeout = 2 * time.Second
 )
@@ -75,13 +78,21 @@ func run(ctx context.Context, o runOptions) error {
 		return err
 	}
 
-	pool, err := openDatabase(ctx, cfg, lookup)
+	store, err := security.NewLocalStore(cfg.App.Env, lookup, cfg.Secrets.Dir)
+	if err != nil {
+		return err
+	}
+	pool, err := openDatabase(ctx, cfg, store)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	srv, err := newServer(cfg, logger, pool, o.OnListening)
+	auth, err := newAuthenticator(ctx, store, pool, logger)
+	if err != nil {
+		return err
+	}
+	srv, err := newServer(cfg, logger, pool, auth, o.OnListening)
 	if err != nil {
 		return err
 	}
@@ -95,11 +106,7 @@ func run(ctx context.Context, o runOptions) error {
 
 // openDatabase reads the runtime password from the secret store and opens the pool. The pool connects lazily: the API
 // starts even if PostgreSQL is still coming up and reports not ready until it answers.
-func openDatabase(ctx context.Context, cfg config.Config, lookup config.Lookup) (*database.Pool, error) {
-	store, err := security.NewLocalStore(cfg.App.Env, lookup, cfg.Secrets.Dir)
-	if err != nil {
-		return nil, err
-	}
+func openDatabase(ctx context.Context, cfg config.Config, store security.SecretGetter) (*database.Pool, error) {
 	password, err := store.Get(ctx, appPasswordSecret)
 	if err != nil {
 		return nil, fmt.Errorf("database password: %w", err)
@@ -107,7 +114,21 @@ func openDatabase(ctx context.Context, cfg config.Config, lookup config.Lookup) 
 	return database.Open(ctx, database.FromConfig(cfg.Postgres, cfg.Postgres.User, password, "api"))
 }
 
-func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
+// newAuthenticator builds the API-key authenticator. The pepper comes from the secret store; without it the API
+// refuses to start, because an authenticator that cannot verify keys would only ever deny.
+func newAuthenticator(ctx context.Context, store security.SecretGetter, pool *database.Pool, logger *slog.Logger) (*apiauth.Authenticator, error) {
+	pepper, err := store.Get(ctx, pepperSecret)
+	if err != nil {
+		return nil, fmt.Errorf("API key pepper: %w", err)
+	}
+	hasher, err := security.NewKeyHasher(pepper)
+	if err != nil {
+		return nil, err
+	}
+	return apiauth.New(apiauth.NewPGStore(pool), hasher, clock.System{}, logger), nil
+}
+
+func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, auth httpserver.Authenticator, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
 	health := httpserver.NewHealth(readinessTimeout,
 		httpserver.Check{Name: "postgres", Critical: true, Run: pool.Check},
 	)
@@ -115,7 +136,7 @@ func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, onLi
 		Logger: logger,
 		Public: httpserver.NewPublicHandler(httpserver.PublicDeps{
 			Logger:       logger,
-			Auth:         nil, // DenyAll until the API-key authenticator lands in S4
+			Auth:         auth,
 			Health:       health,
 			MaxBodyBytes: cfg.HTTP.MaxBodyBytes,
 		}),

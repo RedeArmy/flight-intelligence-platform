@@ -84,7 +84,12 @@ func TestSecretNamesMatchComposeAndInitScript(t *testing.T) {
 	}
 	compose := read("../../deployments/local/docker-compose.yml")
 	init := read("../../deployments/local/postgres/20-role-passwords.sql")
+	// Secrets read only by the Go programs (through SECRETS_DIR) are not database passwords and are not in Compose.
+	appOnly := map[string]bool{"api_key_pepper": true}
 	for _, name := range secretNames {
+		if appOnly[name] {
+			continue
+		}
 		if !strings.Contains(compose, "secrets/"+name) {
 			t.Errorf("%s is generated but not declared in docker-compose.yml", name)
 		}
