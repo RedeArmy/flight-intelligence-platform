@@ -4,7 +4,7 @@ Flight data and intelligence infrastructure: acquire, normalize, verify, store h
 
 **Status:** Phase 0, architecture baseline. No application code yet.
 
-Start here: [docs/CONSTITUTION.md](docs/CONSTITUTION.md) · [AGENTS.md](AGENTS.md) · [docs/adr](docs/adr) · [docs/architecture](docs/architecture)
+Start here: [docs/CONSTITUTION.md](docs/CONSTITUTION.md) · [docs/adr](docs/adr) · [docs/architecture](docs/architecture)
 
 ## Layout
 | Path | Purpose |
