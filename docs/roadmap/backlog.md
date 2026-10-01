@@ -11,9 +11,9 @@ Phase order follows roadmap. Items for E4+ are intentionally coarse until their 
 
 ## E1 — Engineering foundation
 - E1-1 (S) `go.mod`, Go version pinned (D3), `Makefile` targets, tool versions file. **DONE 2026-10-01** (go.mod, .tool-versions, Makefile, scripts/dev.ps1, .gitattributes, .editorconfig, .golangci.yml)
-- E1-2 (M) Typed config + validation + fail-fast; `docs/operations/configuration.md`.
-- E1-3 (M) Logging (slog) + redaction middleware + tests proving no secret leakage.
-- E1-4 (M) Error model package (typed/sentinel, API mapping, `requestId`).
+- E1-2 (M) Typed config + validation + fail-fast; `docs/operations/configuration.md`. **DONE 2026-10-01** (S1: platform/config, .env.example, docs/operations/configuration.md)
+- E1-3 (M) Logging (slog) + redaction middleware + tests proving no secret leakage. **DONE 2026-10-01** (S1: platform/observability/logging + shared/secret, leak test)
+- E1-4 (M) Error model package (typed/sentinel, API mapping, `requestId`). **DONE 2026-10-01** (S1: shared/errors; HTTP mapping arrives with S2)
 - E1-5 (L) HTTP server: routing, middleware (request-id, recover, authn, authz, rate limit, otel), graceful shutdown.
 - E1-6 (M) API-key authn: hash storage, prefix lookup, expiry/revoke, constant-time compare; roles.
 - E1-7 (M) PostgreSQL platform (pool, tx helper, health) + migration tool + first migrations (reference + api keys).
