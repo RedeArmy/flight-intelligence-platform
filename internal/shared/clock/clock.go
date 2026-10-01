@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// Clock returns the current time. Inject it instead of calling time.Now directly.
-type Clock interface {
+// Nower returns the current time. Inject it instead of calling time.Now directly. The name follows the Go
+// convention for single-method interfaces (method Now, so Nower); System and Fake are its implementations.
+type Nower interface {
 	Now() time.Time
 }
 

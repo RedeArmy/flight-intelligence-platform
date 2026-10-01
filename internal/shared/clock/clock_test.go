@@ -54,5 +54,5 @@ func TestFakeIsSafeForConcurrentUse(t *testing.T) {
 	}
 }
 
-var _ Clock = System{}
-var _ Clock = (*Fake)(nil)
+var _ Nower = System{}
+var _ Nower = (*Fake)(nil)

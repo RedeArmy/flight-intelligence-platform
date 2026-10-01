@@ -15,7 +15,7 @@ E1 slice S1 introduces the first shared code: how errors are classified and expo
 
 **Logging** (`internal/platform/observability/logging`). `log/slog` with a JSON handler (text in local/test). Every record carries service, env and version; request, correlation and trace identifiers come from the context (trace IDs through an injected extractor so the logging package does not depend on the OpenTelemetry SDK). A `ReplaceAttr` hook redacts sensitive keys (matched broadly by key name), resolves `secret.Secret` values, and scrubs recognisable credentials in strings, messages and error texts: platform API keys, bearer and basic tokens, URL passwords, and `password=`/`token:`-style pairs. A leak test logs known secrets through every code path and asserts none reach the output.
 
-**Time and secrets.** `internal/shared/clock` provides an injectable `Clock` with a concurrency-safe `Fake`. `internal/shared/secret` provides `Secret`, which prints, marshals and logs as `[REDACTED]` and is read only through `Reveal`.
+**Time and secrets.** `internal/shared/clock` provides an injectable `Nower` interface (the Go name for a single-method `Now` interface) with a concurrency-safe `Fake`. `internal/shared/secret` provides `Secret`, which prints, marshals and logs as `[REDACTED]` and is read only through `Reveal`.
 
 ## Alternatives considered
 - Sentinel errors plus string matching: not classifiable and easy to leak causes.
