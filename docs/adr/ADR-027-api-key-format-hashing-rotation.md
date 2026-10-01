@@ -25,7 +25,7 @@ ADR-016 chooses API keys for machine clients and ADR-017 defines roles and a den
 
 **Administration.** `cmd/keyctl` (client create, key issue, key list, key revoke) connects as `fip_admin` (ADR-031), so a compromised API process cannot mint or revoke keys. Each change and its `audit_events` row are written in one transaction: a change without its audit row cannot exist. Audit details carry names, prefixes and flags, never the secret or the token.
 
-**Audit scope in S4.** Key lifecycle events are audited. Authentication failures are logged with their reason and prefix but are not written to the audit table: they come from unauthenticated callers, so a database write per failure would let anyone fill the audit log and the disk. They are counted as metrics when observability lands (S5). Auditing authorization denials (valid key, missing permission) and aggregated failure summaries is added with the rate limiter (S4b).
+**Audit scope in S4.** Key lifecycle events are audited. Authentication failures are logged with their reason and prefix but are not written to the audit table: they come from unauthenticated callers, so a database write per failure would let anyone fill the audit log and the disk. They are counted as metrics when observability lands (S5). Auditing authorization denials (valid key, missing permission) and aggregated failure summaries is added with the rate limiter (S4b, see [ADR-032](ADR-032-rate-limiting.md)).
 
 ## Alternatives considered
 - Argon2id or bcrypt for the stored secret: protects low-entropy secrets, which these are not; costs CPU on every call and enables denial of service.

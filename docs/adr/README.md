@@ -37,4 +37,5 @@ change needs an ADR (Constitution P15). Number sequentially; never delete, super
 | [029](ADR-029-ci-pipeline-and-main-protection.md) | CI pipeline, main protection and architecture tests | Accepted |
 | [030](ADR-030-go-version-policy.md) | Go version and toolchain policy | Accepted |
 | [031](ADR-031-postgresql-access-roles-migrations-secrets.md) | PostgreSQL access: roles, migrations, secrets and the local database | Accepted |
+| [032](ADR-032-rate-limiting.md) | Rate limiting: token buckets, Redis with a local fallback, failed-authentication throttling | Accepted |
 
