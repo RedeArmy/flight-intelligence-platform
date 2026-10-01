@@ -24,12 +24,12 @@ func TestParseArgs(t *testing.T) {
 		want    command
 		wantErr string
 	}{
-		{"client create", []string{"client", "create", "-name", "a", "-role", "ADMIN"}, command{name: "client-create", client: "a", role: "ADMIN"}, ""},
-		{"key issue default ttl", []string{"key", "issue", "-client", "a"}, command{name: "key-issue", client: "a", ttl: defaultKeyTTL}, ""},
-		{"key issue no expiry", []string{"key", "issue", "-client", "a", "-ttl", "0"}, command{name: "key-issue", client: "a"}, ""},
-		{"key issue ttl", []string{"key", "issue", "-client", "a", "-ttl", "48h"}, command{name: "key-issue", client: "a", ttl: 48 * time.Hour}, ""},
-		{"key list", []string{"key", "list"}, command{name: "key-list"}, ""},
-		{"key revoke", []string{"key", "revoke", "-prefix", "Ab3dE6gH"}, command{name: "key-revoke", prefix: "Ab3dE6gH"}, ""},
+		{"client create", []string{"client", "create", "-name", "a", "-role", "ADMIN"}, command{name: cmdClientCreate, client: "a", role: "ADMIN"}, ""},
+		{"key issue default ttl", []string{"key", "issue", "-client", "a"}, command{name: cmdKeyIssue, client: "a", ttl: defaultKeyTTL}, ""},
+		{"key issue no expiry", []string{"key", "issue", "-client", "a", "-ttl", "0"}, command{name: cmdKeyIssue, client: "a"}, ""},
+		{"key issue ttl", []string{"key", "issue", "-client", "a", "-ttl", "48h"}, command{name: cmdKeyIssue, client: "a", ttl: 48 * time.Hour}, ""},
+		{"key list", []string{"key", "list"}, command{name: cmdKeyList}, ""},
+		{"key revoke", []string{"key", "revoke", "-prefix", "Ab3dE6gH"}, command{name: cmdKeyRevoke, prefix: "Ab3dE6gH"}, ""},
 		{"no args", nil, command{}, "usage"},
 		{"one arg", []string{"key"}, command{}, "usage"},
 		{"unknown command", []string{"key", "burn"}, command{}, "usage"},

@@ -41,6 +41,14 @@ func realMain(ctx context.Context, args []string, o runOptions, stderr io.Writer
 	return cli.RealMain(ctx, "keyctl", args, o, stderr, run)
 }
 
+// Command names: the two words of the command line joined with "-".
+const (
+	cmdClientCreate = "client-create"
+	cmdKeyIssue     = "key-issue"
+	cmdKeyList      = "key-list"
+	cmdKeyRevoke    = "key-revoke"
+)
+
 // command is a parsed command line.
 type command struct {
 	name   string // client-create | key-issue | key-list | key-revoke
@@ -63,14 +71,14 @@ func parseArgs(args []string) (command, error) {
 	fs := flag.NewFlagSet(cmd.name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	switch cmd.name {
-	case "client-create":
+	case cmdClientCreate:
 		fs.StringVar(&cmd.client, "name", "", "client name")
 		fs.StringVar(&cmd.role, "role", "", "client role")
-	case "key-issue":
+	case cmdKeyIssue:
 		fs.StringVar(&cmd.client, "client", "", "client name")
 		fs.DurationVar(&cmd.ttl, "ttl", defaultKeyTTL, "key lifetime; 0 for no expiry")
-	case "key-list":
-	case "key-revoke":
+	case cmdKeyList:
+	case cmdKeyRevoke:
 		fs.StringVar(&cmd.prefix, "prefix", "", "key prefix")
 	default:
 		return command{}, errUsage
@@ -83,11 +91,11 @@ func parseArgs(args []string) (command, error) {
 
 func validate(cmd command) error {
 	switch {
-	case cmd.name == "client-create" && (cmd.client == "" || cmd.role == ""):
+	case cmd.name == cmdClientCreate && (cmd.client == "" || cmd.role == ""):
 		return errors.New("client create needs -name and -role")
-	case cmd.name == "key-issue" && cmd.client == "":
+	case cmd.name == cmdKeyIssue && cmd.client == "":
 		return errors.New("key issue needs -client")
-	case cmd.name == "key-revoke" && cmd.prefix == "":
+	case cmd.name == cmdKeyRevoke && cmd.prefix == "":
 		return errors.New("key revoke needs -prefix")
 	}
 	return nil
@@ -128,16 +136,16 @@ func run(ctx context.Context, args []string, o runOptions) error {
 
 func execute(ctx context.Context, admin *apiauth.Admin, cmd command, out io.Writer) error {
 	switch cmd.name {
-	case "client-create":
+	case cmdClientCreate:
 		c, err := admin.CreateClient(ctx, cmd.client, httpserver.Role(cmd.role))
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(out, "client created id=%s name=%s role=%s\n", c.ID, c.Name, c.Role)
 		return err
-	case "key-issue":
+	case cmdKeyIssue:
 		return issue(ctx, admin, cmd, out)
-	case "key-revoke":
+	case cmdKeyRevoke:
 		if err := admin.RevokeKey(ctx, cmd.prefix); err != nil {
 			return err
 		}
