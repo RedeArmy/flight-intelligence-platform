@@ -7,6 +7,7 @@ GOVULNCHECK_VERSION   := v1.8.0
 GOSEC_VERSION         := v2.29.0
 GITLEAKS_VERSION      := v8.30.1
 ACTIONLINT_VERSION    := v1.7.12
+OAPI_CODEGEN_VERSION  := v2.8.0
 
 export GOTOOLCHAIN := local
 export GOFLAGS     := -mod=readonly
@@ -23,20 +24,24 @@ GOVULNCHECK   := $(GOBIN)/govulncheck$(EXE)
 GOSEC         := $(GOBIN)/gosec$(EXE)
 GITLEAKS      := $(GOBIN)/gitleaks$(EXE)
 ACTIONLINT    := $(GOBIN)/actionlint$(EXE)
+OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup hooks tools fmt vet lint workflows test test-race integration coverage arch security vuln sast secrets build ci
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run test test-race integration coverage arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows test test-race integration coverage arch security vuln sast secrets build ci
-	@echo Planned (added by later E1 slices): dev migrate generate openapi restore-drill
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run test test-race integration coverage arch security vuln sast secrets build ci
+	@echo Planned (added by later E1 slices): dev migrate restore-drill
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
 hooks: ## Enable the repository git hooks (blocks direct commits/pushes to main)
 	git config core.hooksPath .githooks
 
-tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(GOSEC) $(GITLEAKS) $(ACTIONLINT) ## Install pinned dev tools into ./bin
+tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(GOSEC) $(GITLEAKS) $(ACTIONLINT) $(OAPI_CODEGEN) ## Install pinned dev tools into ./bin
+
+$(OAPI_CODEGEN):
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
 
 $(ACTIONLINT):
 	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
@@ -66,6 +71,15 @@ lint: $(GOLANGCI_LINT) ## Lint and verify formatting
 workflows: $(ACTIONLINT) ## Lint GitHub Actions workflows
 	$(ACTIONLINT)
 
+generate: $(OAPI_CODEGEN) ## Regenerate the server code from api/openapi/v1/openapi.yaml
+	$(OAPI_CODEGEN) -config api/openapi/v1/oapi-codegen.yaml api/openapi/v1/openapi.yaml
+
+openapi: ## Validate the OpenAPI contract and its match with the routes and access policies
+	go test -count=1 -run "TestOpenAPI|TestEveryOperation|TestRegisteredRoutes|TestErrorEnvelope|TestEveryDocumented" ./internal/platform/httpserver/
+
+run: ## Run the API locally (reads ./.env when APP_ENV is local or test)
+	go run ./cmd/api
+
 test: ## Unit tests
 	go test -count=1 ./...
 
@@ -85,7 +99,7 @@ vuln: $(GOVULNCHECK) ## Known-vulnerability scan of dependencies and stdlib
 	$(GOVULNCHECK) ./...
 
 sast: $(GOSEC) ## Static security analysis
-	$(GOSEC) -quiet ./...
+	$(GOSEC) -quiet -exclude-generated ./...
 
 secrets: $(GITLEAKS) ## Scan the git history and working tree for secrets
 	$(GITLEAKS) git --no-banner --redact .

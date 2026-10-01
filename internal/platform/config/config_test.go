@@ -117,6 +117,14 @@ func TestPortValidation(t *testing.T) {
 	}
 }
 
+func TestPortZeroListenersAreDistinct(t *testing.T) {
+	// Port 0 asks the OS for any free port, so two port-0 addresses never collide (used by tests and ephemeral runs).
+	_, err := Load(mapLookup(map[string]string{"APP_ENV": "test", "HTTP_ADDR": "127.0.0.1:0", "HTTP_OPERATOR_ADDR": "127.0.0.1:0"}))
+	if err != nil {
+		t.Fatalf("two port-0 addresses must be accepted: %v", err)
+	}
+}
+
 func TestCrossFieldRules(t *testing.T) {
 	cases := []struct {
 		name string

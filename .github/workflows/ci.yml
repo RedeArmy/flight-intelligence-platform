@@ -108,6 +108,31 @@ jobs:
           cache: false
       - run: make build
 
+  openapi:
+    name: openapi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the breaking-change check needs the base branch
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Generated code is up to date with the contract
+        run: |
+          make generate
+          git diff --exit-code -- internal/platform/httpserver/openapi || {
+            echo "::error::Generated code is stale. Run 'make generate' and commit the result."
+            exit 1
+          }
+      - name: Contract is valid and matches routes and access policies
+        run: make openapi
+      - name: No breaking changes to /v1 against the base branch
+        run: ./scripts/openapi-breaking.sh origin/main
+
   integration:
     name: integration
     runs-on: ubuntu-24.04
@@ -178,7 +203,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [lint, test, arch, security, secrets, build, integration, sonar]
+    needs: [lint, test, arch, security, secrets, build, openapi, integration, sonar]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

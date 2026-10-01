@@ -14,20 +14,20 @@ Phase order follows roadmap. Items for E4+ are intentionally coarse until their 
 - E1-2 (M) Typed config + validation + fail-fast; `docs/operations/configuration.md`. **DONE 2026-10-01** (S1: platform/config, .env.example, docs/operations/configuration.md)
 - E1-3 (M) Logging (slog) + redaction middleware + tests proving no secret leakage. **DONE 2026-10-01** (S1: platform/observability/logging + shared/secret, leak test)
 - E1-4 (M) Error model package (typed/sentinel, API mapping, `requestId`). **DONE 2026-10-01** (S1: shared/errors; HTTP mapping arrives with S2)
-- E1-5 (L) HTTP server: routing, middleware (request-id, recover, authn, authz, rate limit, otel), graceful shutdown.
+- E1-5 (L) HTTP server: routing, middleware (request-id, recover, authn, authz, rate limit, otel), graceful shutdown. **PARTIAL 2026-10-01 (S2)**: chi router, middleware chain (request ID, access log, recovery, security headers, body limit, route policy), error mapping, /healthz /readyz, graceful shutdown, cmd/api. Remaining: API-key authn, rate limit (S4), OpenTelemetry (S5).
 - E1-6 (M) API-key authn: hash storage, prefix lookup, expiry/revoke, constant-time compare; roles.
 - E1-7 (M) PostgreSQL platform (pool, tx helper, health) + migration tool + first migrations (reference + api keys).
 - E1-8 (S) Redis platform (client, health) + rate limiter adapter (token bucket) + degraded-mode behavior.
 - E1-9 (M) OpenTelemetry (traces/metrics/logs) wiring + local collector.
 - E1-10 (M) Docker images (non-root/distroless) + Compose (api, worker stub, pg, redis, otel). Compose creates distinct DB roles (migrator, app, readonly) (SR-24).
 - E1-11 (L) CI: format, lint (incl. dependency-rule arch test), tests, OpenAPI lint/diff, SAST, SCA, secret, container, IaC scans, SBOM. **PARTIAL 2026-10-01**: ci.yml with lint, workflow lint, race tests, arch, govulncheck, gosec, gitleaks, build, integration skeleton, ci-gate, optional SonarCloud; remaining: OpenAPI lint/diff/drift (S2), container build + scan + SBOM (S6), pin service images by digest
-- E1-12 (M) OpenAPI v1 skeleton (health, error schema, auth scheme, airlines/airports) + generated server/validation.
+- E1-12 (M) OpenAPI v1 skeleton (health, error schema, auth scheme, airlines/airports) + generated server/validation. **DONE 2026-10-01 (S2)**: OpenAPI 3.0.3 contract, oapi-codegen strict server, drift and breaking-change checks in CI, contract-vs-routes-vs-policies audit.
 - E1-13 (DEFERRED, D1) Terraform skeleton: blocked until a cloud vendor is chosen. No IaC in the repo yet.
 - E1-14 (S) `cmd/worker` skeleton with clean shutdown + `JobQueue` port stub.
 - E1-15 (S) Runbook skeletons (rollback, key rotation, provider disable).
 - E1-16 (S) Repo hygiene (SR-18): `.gitignore` for env/secrets/keys/local data, pre-commit + CI secret scan, fixture provenance rule in CONTRIBUTING. **DONE 2026-10-01** (.gitignore, gitleaks in CI and pre-commit, CONTRIBUTING fixture rule)
 - E1-17 (S) Environment guard (SR-19): startup fails if mock connector or local SecretStore is enabled with a production-like `APP_ENV`.
-- E1-18 (M) Operator listener separation (SR-21) and uniform failed-auth handling + failed-auth rate limit (SR-23).
+- E1-18 (M) Operator listener separation (SR-21) and uniform failed-auth handling + failed-auth rate limit (SR-23). **PARTIAL 2026-10-01 (S2)**: separate operator listener done (SR-21); uniform failed-auth handling and failed-auth rate limit come with S4.
 
 ## E2 — Domain foundation
 - E2-1 (M) Value objects (Money, AirportCode, AirlineCode, FlightNumber, DateRange, PassengerCount, CabinClass, IDs) + tests/property tests.
