@@ -137,6 +137,9 @@ func buildHTTP(p *parser) HTTP {
 	}
 }
 
+// sslVerifyFull is the only TLS mode allowed in production-like environments.
+const sslVerifyFull = "verify-full"
+
 func buildPostgres(p *parser) Postgres {
 	return Postgres{
 		Host:             p.str("POSTGRES_HOST", "localhost"),
@@ -144,7 +147,7 @@ func buildPostgres(p *parser) Postgres {
 		Name:             p.str("POSTGRES_DB", "fip"),
 		User:             p.str("POSTGRES_USER", "fip_app"),
 		MigratorUser:     p.str("POSTGRES_MIGRATOR_USER", "fip_migrator"),
-		SSLMode:          p.enum("POSTGRES_SSLMODE", "verify-full", "verify-full", "disable"),
+		SSLMode:          p.enum("POSTGRES_SSLMODE", sslVerifyFull, sslVerifyFull, "disable"),
 		MaxConns:         int(p.int64("POSTGRES_MAX_CONNS", 10, 1, 200)),
 		MinConns:         int(p.int64("POSTGRES_MIN_CONNS", 0, 0, 200)),
 		ConnectTimeout:   p.duration("POSTGRES_CONNECT_TIMEOUT", 5*time.Second),
@@ -171,7 +174,7 @@ func validatePostgres(p *parser, cfg Config) {
 	if cfg.Postgres.MinConns > cfg.Postgres.MaxConns {
 		p.fail("POSTGRES_MIN_CONNS", "must not exceed POSTGRES_MAX_CONNS")
 	}
-	if cfg.Postgres.SSLMode != "verify-full" && cfg.App.Env.IsProductionLike() {
+	if cfg.Postgres.SSLMode != sslVerifyFull && cfg.App.Env.IsProductionLike() {
 		p.fail("POSTGRES_SSLMODE", "must be verify-full in staging and production")
 	}
 	if cfg.Postgres.User == cfg.Postgres.MigratorUser {

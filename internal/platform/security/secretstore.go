@@ -16,8 +16,8 @@ import (
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/secret"
 )
 
-// SecretStore returns the secret stored under name.
-type SecretStore interface {
+// SecretGetter returns the secret stored under name. It is the SecretStore port of ADR-018.
+type SecretGetter interface {
 	Get(ctx context.Context, name string) (secret.Secret, error)
 }
 
@@ -47,7 +47,7 @@ type LocalStore struct {
 	dir    string
 }
 
-var _ SecretStore = (*LocalStore)(nil)
+var _ SecretGetter = (*LocalStore)(nil)
 
 // NewLocalStore returns a local store. dir may be empty to disable file lookup. It fails when env is production-like.
 func NewLocalStore(env config.Env, lookup config.Lookup, dir string) (*LocalStore, error) {
