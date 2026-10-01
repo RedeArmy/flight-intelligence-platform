@@ -2,7 +2,7 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "test", "test-race", "integration", "coverage", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "db-up", "db-down", "test-db", "test-db-down", "migrate", "test", "test-race", "integration", "coverage", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
     [string]$Target = "help"
 )
 
@@ -22,8 +22,16 @@ $env:GOBIN = Join-Path (Get-Location) "bin"
 
 function Invoke-Native {
     param([string]$Exe, [string[]]$Arguments)
-    & $Exe @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$Exe $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
+    # Tools such as docker and go print progress on stderr; only the exit code decides success.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) { throw "$Exe $($Arguments -join ' ') failed with exit code $code" }
 }
 
 function Install-Tool {
@@ -44,13 +52,17 @@ function Tools {
 
 function Bin([string]$Name) { Join-Path $env:GOBIN "$Name.exe" }
 
+function Compose([string[]]$Arguments) {
+    @("compose", "-f", "deployments/local/docker-compose.yml") + $Arguments
+}
+
 function Scan-Secrets {
     Invoke-Native (Bin "gitleaks") @("git", "--no-banner", "--redact", ".")
     Invoke-Native (Bin "gitleaks") @("dir", "--no-banner", "--redact", ".")
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run test test-race integration coverage arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate test test-race integration coverage arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -63,9 +75,19 @@ switch ($Target) {
         Invoke-Native go @("test", "-count=1", "-run", "TestOpenAPI|TestEveryOperation|TestRegisteredRoutes|TestErrorEnvelope|TestEveryDocumented", "./internal/platform/httpserver/")
     }
     "run" { Invoke-Native go @("run", "./cmd/api") }
+    "local-secrets" { Invoke-Native go @("run", "./scripts/devsecrets") }
+    "db-up" { Invoke-Native docker (Compose @("up", "-d", "--wait", "postgres")) }
+    "db-down" { Invoke-Native docker (Compose @("stop", "postgres")) }
+    "test-db" { Invoke-Native docker (Compose @("--profile", "test", "up", "-d", "--wait", "postgres-test")) }
+    "test-db-down" { Invoke-Native docker (Compose @("--profile", "test", "rm", "-fsv", "postgres-test")) }
+    "migrate" { Invoke-Native go @("run", "./cmd/migrate", "up") }
     "test" { Invoke-Native go @("test", "-count=1", "./...") }
     "test-race" { Invoke-Native go @("test", "-race", "-count=1", "./...") }
-    "integration" { Invoke-Native go @("test", "-tags", "integration", "-count=1", "./...") }
+    "integration" {
+        # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
+        if (-not $env:TEST_POSTGRES_DSN) { $env:TEST_POSTGRES_DSN = "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable" }
+        Invoke-Native go @("test", "-tags", "integration", "-count=1", "./...")
+    }
     "coverage" { Invoke-Native go @("test", "-count=1", "-covermode=atomic", "-coverprofile=coverage.out", "./...") }
     "arch" { Invoke-Native go @("test", "-count=1", "./internal/archtest/...") }
     "vuln" { Tools; Invoke-Native (Bin "govulncheck") @("./...") }

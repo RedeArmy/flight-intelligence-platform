@@ -141,7 +141,7 @@ jobs:
     # pinned by digest in E1-7/E1-8 when the first integration tests exist.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
           POSTGRES_HOST_AUTH_METHOD: trust

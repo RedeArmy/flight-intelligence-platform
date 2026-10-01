@@ -27,11 +27,13 @@ ACTIONLINT    := $(GOBIN)/actionlint$(EXE)
 OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run test test-race integration coverage arch security vuln sast secrets build ci
+COMPOSE := docker compose -f deployments/local/docker-compose.yml
+
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate test test-race integration coverage arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run test test-race integration coverage arch security vuln sast secrets build ci
-	@echo Planned (added by later E1 slices): dev migrate restore-drill
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate test test-race integration coverage arch security vuln sast secrets build ci
+	@echo Planned (added by later E1 slices): dev restore-drill
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -80,13 +82,34 @@ openapi: ## Validate the OpenAPI contract and its match with the routes and acce
 run: ## Run the API locally (reads ./.env when APP_ENV is local or test)
 	go run ./cmd/api
 
+local-secrets: ## Generate local dev secrets into ./secrets (git-ignored); never overwrites existing ones
+	go run ./scripts/devsecrets
+
+db-up: ## Start the local PostgreSQL (needs make local-secrets first)
+	$(COMPOSE) up -d --wait postgres
+
+db-down: ## Stop the local PostgreSQL (keeps its data volume)
+	$(COMPOSE) stop postgres
+
+test-db: ## Start the throw-away integration-test PostgreSQL on 127.0.0.1:55432 (RAM-backed, trust auth)
+	$(COMPOSE) --profile test up -d --wait postgres-test
+
+test-db-down: ## Remove the throw-away integration-test PostgreSQL
+	$(COMPOSE) --profile test rm -fsv postgres-test
+
+migrate: ## Apply database migrations to the local PostgreSQL as fip_migrator
+	go run ./cmd/migrate up
+
 test: ## Unit tests
 	go test -count=1 ./...
 
 test-race: ## Unit tests with the race detector (needs a C toolchain on Windows)
 	go test -race -count=1 ./...
 
-integration: ## Integration tests (need PostgreSQL and Redis; none exist yet)
+# The DSN is set explicitly on purpose: when TEST_POSTGRES_DSN is set the harness FAILS if the database is unreachable
+# instead of silently skipping, so a missing test database can never look like a green run.
+integration: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable
+integration: ## Integration tests against PostgreSQL (run make test-db first, or set TEST_POSTGRES_DSN)
 	go test -tags integration -count=1 ./...
 
 coverage: ## Unit tests with a coverage profile (used by SonarCloud)

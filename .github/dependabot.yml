@@ -12,3 +12,9 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     labels: [dependencies, ci]
+  - package-ecosystem: docker-compose
+    directory: /deployments/local
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: [dependencies]
