@@ -58,27 +58,32 @@ func TestCheck(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Check([]Package{tc.pkg})
-			if tc.want == "" {
-				if len(got) != 0 {
-					t.Fatalf("unexpected violations: %v", got)
-				}
-				return
-			}
-			if len(got) == 0 {
-				t.Fatalf("expected a violation containing %q, got none", tc.want)
-			}
-			found := false
-			for _, v := range got {
-				if strings.Contains(v.Rule, tc.want) {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("expected violation containing %q, got %v", tc.want, got)
-			}
+			assertViolation(t, Check([]Package{tc.pkg}), tc.want)
 		})
 	}
+}
+
+// assertViolation checks that got is empty when want is empty, otherwise that some violation's rule contains want.
+func assertViolation(t *testing.T, got []Violation, want string) {
+	t.Helper()
+	if want == "" {
+		if len(got) != 0 {
+			t.Fatalf("unexpected violations: %v", got)
+		}
+		return
+	}
+	if !anyRuleContains(got, want) {
+		t.Fatalf("expected a violation containing %q, got %v", want, got)
+	}
+}
+
+func anyRuleContains(vs []Violation, substr string) bool {
+	for _, v := range vs {
+		if strings.Contains(v.Rule, substr) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCloudSDKForbiddenEverywhere(t *testing.T) {

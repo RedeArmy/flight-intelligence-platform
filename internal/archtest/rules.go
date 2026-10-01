@@ -48,16 +48,28 @@ var applicationAllowedExternal = []string{
 	"go.opentelemetry.io/otel",
 }
 
+// Layer kinds.
+const (
+	kindDomain      = "domain"
+	kindApplication = "application"
+	kindPorts       = "ports"
+	kindAdapters    = "adapters"
+	kindPlatform    = "platform"
+	kindShared      = "shared"
+	kindProvider    = "provider"
+	kindConnector   = "connector"
+	kindCmd         = "cmd"
+	kindExternal    = "external"
+	kindOther       = "other"
+)
+
 type layer struct {
-	kind    string // domain, application, ports, adapters, platform, shared, connector, cmd, other
+	kind    string
 	context string // bounded context, or connector name
 }
 
 func isStdlib(path string) bool {
-	first := path
-	if i := strings.Index(path, "/"); i >= 0 {
-		first = path[:i]
-	}
+	first, _, _ := strings.Cut(path, "/")
 	return !strings.Contains(first, ".")
 }
 
@@ -65,68 +77,62 @@ func trimModule(path string) (string, bool) {
 	if path == Module {
 		return "", true
 	}
-	if rest, ok := strings.CutPrefix(path, Module+"/"); ok {
-		return rest, true
-	}
-	return "", false
+	return strings.CutPrefix(path, Module+"/")
 }
 
-// classify maps an in-module import path to its layer.
+// classify maps an import path to its layer.
 func classify(path string) layer {
 	rest, ok := trimModule(path)
 	if !ok {
-		return layer{kind: "external"}
+		return layer{kind: kindExternal}
 	}
 	parts := strings.Split(rest, "/")
-	switch {
-	case parts[0] == "cmd":
-		return layer{kind: "cmd"}
-	case parts[0] != "internal" || len(parts) < 2:
-		return layer{kind: "other"}
+	if parts[0] == "cmd" {
+		return layer{kind: kindCmd}
+	}
+	if parts[0] != "internal" || len(parts) < 2 {
+		return layer{kind: kindOther}
+	}
+	return classifyInternal(parts[1:])
+}
+
+// classifyInternal classifies the path elements below "internal/".
+func classifyInternal(parts []string) layer {
+	switch parts[0] {
+	case kindPlatform, kindShared:
+		return layer{kind: parts[0]}
+	case "provider":
+		return classifyProvider(parts)
+	case "archtest":
+		return layer{kind: kindOther}
+	}
+	return classifyContext(parts)
+}
+
+func classifyProvider(parts []string) layer {
+	if len(parts) >= 3 && parts[1] == "connectors" {
+		return layer{kind: kindConnector, context: parts[2]}
+	}
+	return layer{kind: kindProvider}
+}
+
+func classifyContext(parts []string) layer {
+	if len(parts) < 2 {
+		return layer{kind: kindOther}
 	}
 	switch parts[1] {
-	case "platform":
-		return layer{kind: "platform"}
-	case "shared":
-		return layer{kind: "shared"}
-	case "archtest":
-		return layer{kind: "other"}
-	case "provider":
-		if len(parts) >= 4 && parts[2] == "connectors" {
-			return layer{kind: "connector", context: parts[3]}
-		}
-		return layer{kind: "provider"}
+	case kindDomain, kindApplication, kindPorts, kindAdapters:
+		return layer{kind: parts[1], context: parts[0]}
 	}
-	if len(parts) >= 3 {
-		switch parts[2] {
-		case "domain", "application", "ports", "adapters":
-			return layer{kind: parts[2], context: parts[1]}
-		}
-	}
-	return layer{kind: "other"}
+	return layer{kind: kindOther}
 }
 
 // Check evaluates all rules over pkgs and returns violations sorted for stable output.
 func Check(pkgs []Package) []Violation {
 	var out []Violation
 	for _, p := range pkgs {
-		from := classify(p.ImportPath)
-
-		// Rule: no cloud SDK anywhere, including tests (D1).
-		for _, imp := range p.AllImports {
-			for _, prefix := range cloudSDKPrefixes {
-				if strings.HasPrefix(imp, prefix) {
-					out = append(out, Violation{p.ImportPath, imp, "cloud SDKs are forbidden (D1, ADR-025)"})
-				}
-			}
-		}
-
-		for _, imp := range p.Imports {
-			to := classify(imp)
-			if v, bad := checkImport(from, to, imp); bad {
-				out = append(out, Violation{p.ImportPath, imp, v})
-			}
-		}
+		out = append(out, cloudViolations(p)...)
+		out = append(out, layerViolations(p)...)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Package != out[j].Package {
@@ -137,92 +143,148 @@ func Check(pkgs []Package) []Violation {
 	return out
 }
 
+// cloudViolations flags cloud SDK imports anywhere, including tests (D1).
+func cloudViolations(p Package) []Violation {
+	var out []Violation
+	for _, imp := range p.AllImports {
+		if hasAnyPrefix(imp, cloudSDKPrefixes) {
+			out = append(out, Violation{p.ImportPath, imp, "cloud SDKs are forbidden (D1, ADR-025)"})
+		}
+	}
+	return out
+}
+
+// layerViolations applies the per-layer import rules to non-test imports.
+func layerViolations(p Package) []Violation {
+	from := classify(p.ImportPath)
+	var out []Violation
+	for _, imp := range p.Imports {
+		if why, bad := checkImport(from, classify(imp), imp); bad {
+			out = append(out, Violation{p.ImportPath, imp, why})
+		}
+	}
+	return out
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// importRule returns a reason and true when importing `imp` (classified as `to`) from `from` is forbidden.
+type importRule func(from, to layer, imp string) (string, bool)
+
+var layerRules = map[string]importRule{
+	kindDomain:      domainRule,
+	kindApplication: applicationRule,
+	kindPorts:       portsRule,
+	kindAdapters:    adaptersRule,
+	kindPlatform:    platformRule,
+	kindShared:      sharedRule,
+	kindConnector:   connectorRule,
+}
+
 func checkImport(from, to layer, imp string) (string, bool) {
-	std := isStdlib(imp)
-
-	switch from.kind {
-	case "domain":
-		if std {
-			return rejectIfForbiddenStd(imp, "domain must not depend on infrastructure packages")
-		}
-		if to.kind == "shared" || (to.kind == "domain" && to.context == from.context) {
-			return "", false
-		}
-		return "domain may import only stdlib, internal/shared and its own context's domain (P1, ADR-006)", true
-
-	case "application":
-		if std {
-			return rejectIfForbiddenStd(imp, "application must not depend on infrastructure packages")
-		}
-		switch to.kind {
-		case "shared":
-			return "", false
-		case "domain", "ports":
-			if to.context == from.context {
-				return "", false
-			}
-			return "application must not import another context's " + to.kind + " (08 rule 4)", true
-		case "application":
-			// Same-context sub-packages and cross-context calls through the other
-			// context's application services are both allowed (08 rule 4).
-			return "", false
-		case "external":
-			for _, allowed := range applicationAllowedExternal {
-				if strings.HasPrefix(imp, allowed) {
-					return "", false
-				}
-			}
-			return "application may not import third-party packages except " + strings.Join(applicationAllowedExternal, ", "), true
-		}
-		return "application must not import adapters, platform or provider code (08 rule 2)", true
-
-	case "ports":
-		if std {
-			return rejectIfForbiddenStd(imp, "ports must not depend on infrastructure packages")
-		}
-		if to.kind == "shared" || (to.kind == "domain" && to.context == from.context) {
-			return "", false
-		}
-		return "ports may import only stdlib, internal/shared and their own context's domain", true
-
-	case "adapters":
-		switch to.kind {
-		case "domain", "ports", "application", "adapters":
-			if to.context != from.context {
-				return "adapters must not import another context's internals (08 rule 3)", true
-			}
-		}
+	rule, ok := layerRules[from.kind]
+	if !ok {
 		return "", false
+	}
+	return rule(from, to, imp)
+}
 
-	case "platform":
-		switch to.kind {
-		case "domain", "application", "ports", "adapters", "connector":
-			return "internal/platform must not depend on bounded contexts or connectors", true
-		}
+func sameContext(from, to layer, kind string) bool {
+	return to.kind == kind && to.context == from.context
+}
+
+func domainRule(from, to layer, imp string) (string, bool) {
+	if isStdlib(imp) {
+		return rejectIfForbiddenStd(imp, "domain must not depend on infrastructure packages")
+	}
+	if to.kind == kindShared || sameContext(from, to, kindDomain) {
 		return "", false
+	}
+	return "domain may import only stdlib, internal/shared and its own context's domain (P1, ADR-006)", true
+}
 
-	case "shared":
-		if std {
-			return "", false
-		}
-		return "internal/shared may import only the standard library (kernel stays tiny)", true
+func portsRule(from, to layer, imp string) (string, bool) {
+	if isStdlib(imp) {
+		return rejectIfForbiddenStd(imp, "ports must not depend on infrastructure packages")
+	}
+	if to.kind == kindShared || sameContext(from, to, kindDomain) {
+		return "", false
+	}
+	return "ports may import only stdlib, internal/shared and their own context's domain", true
+}
 
-	case "connector":
-		if std || to.kind == "shared" || to.kind == "provider" {
+func applicationRule(from, to layer, imp string) (string, bool) {
+	if isStdlib(imp) {
+		return rejectIfForbiddenStd(imp, "application must not depend on infrastructure packages")
+	}
+	switch to.kind {
+	case kindShared, kindApplication:
+		// Cross-context calls go through the other context's application services (08 rule 4).
+		return "", false
+	case kindDomain, kindPorts:
+		if to.context == from.context {
 			return "", false
 		}
-		if to.kind == "connector" {
-			if to.context == from.context {
-				return "", false
-			}
-			return "a connector must not import another connector (08 rule 5)", true
+		return "application must not import another context's " + to.kind + " (08 rule 4)", true
+	case kindExternal:
+		return applicationExternalRule(imp)
+	}
+	return "application must not import adapters, platform or provider code (08 rule 2)", true
+}
+
+func applicationExternalRule(imp string) (string, bool) {
+	if hasAnyPrefix(imp, applicationAllowedExternal) {
+		return "", false
+	}
+	return "application may not import third-party packages except " + strings.Join(applicationAllowedExternal, ", "), true
+}
+
+func adaptersRule(from, to layer, _ string) (string, bool) {
+	switch to.kind {
+	case kindDomain, kindPorts, kindApplication, kindAdapters:
+		if to.context != from.context {
+			return "adapters must not import another context's internals (08 rule 3)", true
 		}
-		if to.kind == "external" {
-			return "", false
-		}
-		return "connectors may import only internal/provider, internal/shared and third-party packages (canonical types location is decided in E2)", true
 	}
 	return "", false
+}
+
+func platformRule(_, to layer, _ string) (string, bool) {
+	switch to.kind {
+	case kindDomain, kindApplication, kindPorts, kindAdapters, kindConnector:
+		return "internal/platform must not depend on bounded contexts or connectors", true
+	}
+	return "", false
+}
+
+func sharedRule(_, _ layer, imp string) (string, bool) {
+	if isStdlib(imp) {
+		return "", false
+	}
+	return "internal/shared may import only the standard library (kernel stays tiny)", true
+}
+
+func connectorRule(from, to layer, imp string) (string, bool) {
+	if isStdlib(imp) {
+		return "", false
+	}
+	switch to.kind {
+	case kindShared, kindProvider, kindExternal:
+		return "", false
+	case kindConnector:
+		if to.context == from.context {
+			return "", false
+		}
+		return "a connector must not import another connector (08 rule 5)", true
+	}
+	return "connectors may import only internal/provider, internal/shared and third-party packages (canonical types location is decided in E2)", true
 }
 
 func rejectIfForbiddenStd(imp, why string) (string, bool) {

@@ -118,15 +118,16 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_PASSWORD: ci-only-not-a-secret
+          # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: fip_test
-        ports: ["5432:5432"]
+        ports: ["127.0.0.1:5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
       redis:
         image: redis:7-alpine
-        ports: ["6379:6379"]
+        ports: ["127.0.0.1:6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 10
@@ -140,7 +141,7 @@ jobs:
           cache: false
       - run: make integration
         env:
-          TEST_POSTGRES_DSN: postgres://postgres:ci-only-not-a-secret@localhost:5432/fip_test?sslmode=disable
+          TEST_POSTGRES_DSN: postgres://postgres@localhost:5432/fip_test?sslmode=disable
           TEST_REDIS_ADDR: localhost:6379
 
   # SonarCloud analysis of every PR and every merge to main. Disabled until the repository variable
