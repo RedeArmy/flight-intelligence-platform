@@ -37,3 +37,13 @@ Run the API locally (needs `APP_ENV`; copy `.env.example` to `.env` first):
 make run     # serves on :8080 (public) and 127.0.0.1:8081 (operator)
 curl -i http://localhost:8080/healthz
 ```
+
+### Local database
+```bash
+make local-secrets   # once: generates ./secrets (git-ignored; never overwrites)
+make db-up           # PostgreSQL 17 on 127.0.0.1:5432, password auth for every role
+make migrate         # applies migrations as fip_migrator
+make run             # the API reads ./secrets and reports /readyz ready once PostgreSQL answers
+make test-db         # separate throw-away database on 127.0.0.1:55432 for `make integration`
+```
+The runtime role (`fip_app`) cannot change the schema or alter the audit log; see [ADR-031](docs/adr/ADR-031-postgresql-access-roles-migrations-secrets.md).

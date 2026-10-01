@@ -35,5 +35,6 @@ change needs an ADR (Constitution P15). Number sequentially; never delete, super
 | [028](ADR-028-local-dev-environment.md) | Local developer environment and tooling | Accepted |
 | [029](ADR-029-ci-pipeline-and-main-protection.md) | CI pipeline, main protection and architecture tests | Accepted |
 | [030](ADR-030-go-version-policy.md) | Go version and toolchain policy | Accepted |
+| [031](ADR-031-postgresql-access-roles-migrations-secrets.md) | PostgreSQL access: roles, migrations, secrets and the local database | Accepted |
 
 ADR-027 (API key hashing) is reserved for slice S4 of E1 and is written with that slice.
