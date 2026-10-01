@@ -1,0 +1,59 @@
+# --- AI coding assistant files (local only, never committed) ---
+# Claude Code
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+# Generic agent instructions
+AGENTS.md
+AGENT.md
+# Other assistants (kept out for the same reason)
+.cursor/
+.cursorrules
+.windsurfrules
+.aider*
+.github/copilot-instructions.md
+GEMINI.md
+
+# --- Secrets and local config (SR-18) ---
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials*.json
+
+# --- Go ---
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+go.work
+go.work.sum
+vendor/
+
+# --- Local data and tooling ---
+/.data/
+/tmp/
+*.log
+*.sqlite
+*.dump
+*.sql.gz
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
