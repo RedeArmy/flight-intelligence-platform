@@ -103,7 +103,7 @@ func run(ctx context.Context, o runOptions) error {
 	if err != nil {
 		return err
 	}
-	defer lim.close()
+	defer lim.release()
 
 	srv, err := newServer(cfg, logger, serverDeps{
 		pool: pool, auth: auth, limiting: lim, auditor: apiauth.NewPGAuditor(pool, clock.System{}),
@@ -147,7 +147,14 @@ func newAuthenticator(ctx context.Context, store security.SecretGetter, pool *da
 type limiting struct {
 	limiter httpserver.RateLimiter
 	checks  []httpserver.Check
-	close   func()
+	close   func() // releases the Redis connection; nil when there is none
+}
+
+// release frees what the limiter holds, if anything.
+func (l limiting) release() {
+	if l.close != nil {
+		l.close()
+	}
 }
 
 // newLimiting builds the rate limiter. Without REDIS_ADDR it limits per instance in memory. With Redis, counters are
@@ -156,7 +163,7 @@ func newLimiting(ctx context.Context, cfg config.Config, store security.SecretGe
 	local := ratelimit.NewMemory(clock.System{}, ratelimit.DefaultMaxKeys)
 	if cfg.Redis.Addr == "" {
 		logger.WarnContext(ctx, "REDIS_ADDR is not set: rate limits apply per instance only")
-		return limiting{limiter: local, close: func() {}}, nil
+		return limiting{limiter: local}, nil
 	}
 	password, err := store.Get(ctx, redisPasswordSecret)
 	if err != nil && sharederrors.CodeOf(err) != security.CodeSecretNotFound {
