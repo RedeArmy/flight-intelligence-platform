@@ -31,8 +31,9 @@ change needs an ADR (Constitution P15). Number sequentially; never delete, super
 | [023](ADR-023-disaster-recovery.md) | Disaster recovery strategy | Amended |
 | [024](ADR-024-feature-flags.md) | Feature flags with lifecycle | Accepted |
 | [025](ADR-025-deployment.md) | Deployment strategy: managed containers, no Kubernetes | Amended |
+| [026](ADR-026-error-config-logging-conventions.md) | Error model, configuration and logging conventions | Accepted |
 | [028](ADR-028-local-dev-environment.md) | Local developer environment and tooling | Accepted |
 | [029](ADR-029-ci-pipeline-and-main-protection.md) | CI pipeline, main protection and architecture tests | Accepted |
 | [030](ADR-030-go-version-policy.md) | Go version and toolchain policy | Accepted |
 
-ADR-026 (error model and HTTP conventions) and ADR-027 (API key hashing) are reserved for slices S1/S2 and S4 of E1; they are written with those slices.
+ADR-027 (API key hashing) is reserved for slice S4 of E1 and is written with that slice.

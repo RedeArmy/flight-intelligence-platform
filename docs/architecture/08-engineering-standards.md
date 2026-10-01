@@ -32,7 +32,7 @@ No `pkg/` (nothing is a public library). Go module path: `github.com/RedeArmy/fl
 Idiomatic Go; small packages; explicit over clever; `context.Context` first param on I/O; no globals
 except constants; no `init()` side effects; errors wrapped with `%w` and classified (sentinel/typed);
 interfaces at architectural boundaries, defined by consumers, small; constructors validate and return
-value objects; time and IDs injected via `Clock`/`IDGen` for determinism; bounded concurrency
+value objects; time and IDs injected via `clock.Nower`/`IDGen` for determinism; bounded concurrency
 (errgroup + semaphore), no unbounded goroutines, no arbitrary `time.Sleep` (use timers/contexts);
 table-driven tests; `-race` in CI; structured logging via `slog` with redaction; no reflection-heavy
 frameworks; dependencies minimal and justified in PR; generated code isolated and marked.
