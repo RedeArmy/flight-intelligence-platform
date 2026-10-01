@@ -20,3 +20,13 @@ Start here: [docs/CONSTITUTION.md](docs/CONSTITUTION.md) · [docs/adr](docs/adr)
 | `deployments`, `terraform` | Docker/local compose; IaC per environment |
 | `docs/` | product, architecture (C4), ADRs, API, security, operations, testing, roadmap |
 | `.github/workflows` | CI/CD |
+
+## Quickstart (developers)
+Prerequisites: Go (see `.tool-versions`), GNU make (or `scripts\dev.ps1` on Windows), Docker Desktop (from slice S6).
+
+```bash
+make setup   # install pinned tools into ./bin and enable git hooks
+make ci      # everything CI runs: vet, lint, workflow lint, tests, architecture rules, security scans, build
+```
+
+`main` is protected: work on a branch and open a pull request ([CONTRIBUTING.md](CONTRIBUTING.md), [branch protection](docs/operations/branch-protection.md), [SonarCloud](docs/operations/sonarcloud.md)).

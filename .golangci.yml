@@ -1,0 +1,79 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - errorlint
+    - bodyclose
+    - noctx
+    - contextcheck
+    - sloglint
+    - misspell
+    - depguard
+    - gosec
+    - nilerr
+    - rowserrcheck
+    - sqlclosecheck
+  settings:
+    depguard:
+      rules:
+        no-cloud-sdks:
+          list-mode: lax
+          files:
+            - $all
+          deny:
+            - pkg: github.com/aws/
+              desc: cloud SDKs are forbidden until a vendor is chosen (D1, ADR-025)
+            - pkg: cloud.google.com/
+              desc: cloud SDKs are forbidden until a vendor is chosen (D1, ADR-025)
+            - pkg: github.com/Azure/
+              desc: cloud SDKs are forbidden until a vendor is chosen (D1, ADR-025)
+        pure-layers:
+          list-mode: lax
+          files:
+            - "**/internal/*/domain/**"
+            - "**/internal/*/application/**"
+            - "**/internal/*/ports/**"
+          deny:
+            - pkg: net/http
+              desc: domain/application/ports must not depend on HTTP (ADR-006)
+            - pkg: database/sql
+              desc: domain/application/ports must not depend on SQL (ADR-006)
+            - pkg: github.com/jackc/pgx
+              desc: persistence belongs in adapters (ADR-006)
+    sloglint:
+      no-global: all
+      context: scope
+    gosec:
+      excludes: []
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - noctx
+      - path: internal/archtest/
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/RedeArmy/flight-intelligence-platform

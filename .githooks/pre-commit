@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocks commits on main and runs quick local checks. Enable with: make hooks
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  echo "pre-commit: direct commits to '$branch' are blocked. Create a branch: git switch -c <type>/<topic>" >&2
+  exit 1
+fi
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [ -n "$staged" ] && command -v gofmt >/dev/null 2>&1; then
+  unformatted=$(gofmt -l $staged)
+  if [ -n "$unformatted" ]; then
+    echo "pre-commit: gofmt needed on:" >&2
+    echo "$unformatted" >&2
+    exit 1
+  fi
+fi
+if [ -x ./bin/gitleaks ] || [ -x ./bin/gitleaks.exe ]; then
+  g=./bin/gitleaks; [ -x "$g" ] || g=./bin/gitleaks.exe
+  "$g" git --staged --no-banner --redact . >/dev/null 2>&1 || {
+    echo "pre-commit: gitleaks found a possible secret in staged changes (run: $g git --staged --redact .)" >&2
+    exit 1
+  }
+fi
+exit 0
