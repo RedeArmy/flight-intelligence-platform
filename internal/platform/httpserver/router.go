@@ -14,6 +14,9 @@ import (
 type PublicDeps struct {
 	Logger       *slog.Logger
 	Auth         Authenticator // nil means DenyAll: protected routes stay closed
+	Limiter      RateLimiter   // nil disables rate limiting (tests only)
+	Limits       Limits
+	Auditor      Auditor // nil disables auditing of authorisation denials (tests only)
 	Health       *Health
 	MaxBodyBytes int64
 }
@@ -35,7 +38,7 @@ func NewPublicHandler(d PublicDeps) http.Handler {
 	})
 	openapi.HandlerWithOptions(strict, openapi.ChiServerOptions{
 		BaseRouter:       r,
-		Middlewares:      []openapi.MiddlewareFunc{enforcePolicy(auth)},
+		Middlewares:      []openapi.MiddlewareFunc{enforcePolicy(guard{auth: auth, limiter: d.Limiter, limits: d.Limits, auditor: d.Auditor})},
 		ErrorHandlerFunc: badRequest,
 	})
 	return r

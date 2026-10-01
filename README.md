@@ -44,9 +44,12 @@ make local-secrets   # once: generates ./secrets (git-ignored; never overwrites)
 make db-up           # PostgreSQL 17 on 127.0.0.1:5432, password auth for every role
 make migrate         # applies migrations as fip_migrator
 make run             # the API reads ./secrets and reports /readyz ready once PostgreSQL answers
-make test-db         # separate throw-away database on 127.0.0.1:55432 for `make integration`
+make test-db         # throw-away PostgreSQL (55432) and Redis (56379) for `make integration`
 ```
 The runtime role (`fip_app`) cannot change the schema or alter the audit log; see [ADR-031](docs/adr/ADR-031-postgresql-access-roles-migrations-secrets.md).
+
+### Rate limiting
+Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
 
 ### API keys
 Protected routes (such as `GET /v1/whoami`) need `Authorization: Bearer <key>`. Keys are issued by the operator tool, which connects as `fip_admin` and prints the token once ([ADR-027](docs/adr/ADR-027-api-key-format-hashing-rotation.md)):

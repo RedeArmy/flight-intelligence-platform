@@ -371,8 +371,11 @@ type InternalJSONResponse struct {
 }
 
 type RateLimitedResponseHeaders struct {
-	RetryAfter *int
-	XRequestId *string
+	RateLimitLimit     *int
+	RateLimitRemaining *int
+	RateLimitReset     *int
+	RetryAfter         *int
+	XRequestId         *string
 }
 type RateLimitedJSONResponse struct {
 	Body ErrorResponse
@@ -523,6 +526,15 @@ func (response GetWhoami429JSONResponse) VisitGetWhoamiResponse(w http.ResponseW
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
 	if response.Headers.RetryAfter != nil {
 		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
 	}

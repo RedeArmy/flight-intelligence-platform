@@ -16,17 +16,24 @@ import (
 	"time"
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/cache"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/config"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
+	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
 )
 
 const (
 	appPasswordSecret = "postgres_password"
 	pepperSecret      = "api_key_pepper" // #nosec G101 -- a secret name, not a secret
+	// redisPasswordSecret is optional: a local Redis has no password.
+	redisPasswordSecret = "redis_password" // #nosec G101 -- a secret name, not a secret
+	// fallbackRetry is how long the limiter keeps using local limits after Redis fails before trying Redis again.
+	fallbackRetry = 5 * time.Second
 	// readinessTimeout bounds each readiness check, so a hung dependency cannot hang the probe.
 	readinessTimeout = 2 * time.Second
 )
@@ -92,7 +99,15 @@ func run(ctx context.Context, o runOptions) error {
 	if err != nil {
 		return err
 	}
-	srv, err := newServer(cfg, logger, pool, auth, o.OnListening)
+	lim, err := newLimiting(ctx, cfg, store, logger)
+	if err != nil {
+		return err
+	}
+	defer lim.close()
+
+	srv, err := newServer(cfg, logger, serverDeps{
+		pool: pool, auth: auth, limiting: lim, auditor: apiauth.NewPGAuditor(pool, clock.System{}),
+	}, o.OnListening)
 	if err != nil {
 		return err
 	}
@@ -128,15 +143,55 @@ func newAuthenticator(ctx context.Context, store security.SecretGetter, pool *da
 	return apiauth.New(apiauth.NewPGStore(pool), hasher, clock.System{}, logger), nil
 }
 
-func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, auth httpserver.Authenticator, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
-	health := httpserver.NewHealth(readinessTimeout,
-		httpserver.Check{Name: "postgres", Critical: true, Run: pool.Check},
-	)
+// limiting is the rate limiter and, when Redis is configured, its optional readiness check.
+type limiting struct {
+	limiter httpserver.RateLimiter
+	checks  []httpserver.Check
+	close   func()
+}
+
+// newLimiting builds the rate limiter. Without REDIS_ADDR it limits per instance in memory. With Redis, counters are
+// shared across instances and a local limiter with stricter limits takes over if Redis fails (ADR-004, ADR-032).
+func newLimiting(ctx context.Context, cfg config.Config, store security.SecretGetter, logger *slog.Logger) (limiting, error) {
+	local := ratelimit.NewMemory(clock.System{}, ratelimit.DefaultMaxKeys)
+	if cfg.Redis.Addr == "" {
+		logger.WarnContext(ctx, "REDIS_ADDR is not set: rate limits apply per instance only")
+		return limiting{limiter: local, close: func() {}}, nil
+	}
+	password, err := store.Get(ctx, redisPasswordSecret)
+	if err != nil && sharederrors.CodeOf(err) != security.CodeSecretNotFound {
+		return limiting{}, fmt.Errorf("redis password: %w", err)
+	}
+	rc, err := cache.Open(cfg.Redis, password)
+	if err != nil {
+		return limiting{}, err
+	}
+	return limiting{
+		limiter: ratelimit.NewFallback(ratelimit.NewRedis(rc.Scripter()), local, clock.System{}, logger, ratelimit.DefaultScale, fallbackRetry),
+		checks:  []httpserver.Check{{Name: "redis", Critical: false, Run: rc.Check}},
+		close:   func() { _ = rc.Close() },
+	}, nil
+}
+
+// serverDeps are the built components newServer wires together.
+type serverDeps struct {
+	pool     *database.Pool
+	auth     httpserver.Authenticator
+	limiting limiting
+	auditor  httpserver.Auditor
+}
+
+func newServer(cfg config.Config, logger *slog.Logger, d serverDeps, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
+	checks := append([]httpserver.Check{{Name: "postgres", Critical: true, Run: d.pool.Check}}, d.limiting.checks...)
+	health := httpserver.NewHealth(readinessTimeout, checks...)
 	return httpserver.New(httpserver.Options{
 		Logger: logger,
 		Public: httpserver.NewPublicHandler(httpserver.PublicDeps{
 			Logger:       logger,
-			Auth:         auth,
+			Auth:         d.auth,
+			Limiter:      d.limiting.limiter,
+			Limits:       limitsFrom(cfg.Limits),
+			Auditor:      d.auditor,
 			Health:       health,
 			MaxBodyBytes: cfg.HTTP.MaxBodyBytes,
 		}),
@@ -151,4 +206,14 @@ func newServer(cfg config.Config, logger *slog.Logger, pool *database.Pool, auth
 		ShutdownTimeout:   cfg.HTTP.ShutdownTimeout,
 		OnListening:       onListening,
 	})
+}
+
+// limitsFrom turns the per-minute settings into token-bucket rules.
+func limitsFrom(l config.RateLimits) httpserver.Limits {
+	perMinute := func(n int) ratelimit.Rule { return ratelimit.Rule{Limit: n, Window: time.Minute} }
+	return httpserver.Limits{
+		IP:          perMinute(l.IPPerMinute),
+		Client:      perMinute(l.ClientPerMinute),
+		AuthFailure: perMinute(l.AuthFailuresPerMinute),
+	}
 }

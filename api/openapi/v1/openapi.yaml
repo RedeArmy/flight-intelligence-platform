@@ -131,6 +131,21 @@ components:
           schema:
             type: integer
             minimum: 0
+        RateLimit-Limit:
+          description: Size of the token bucket that was exhausted
+          schema:
+            type: integer
+            minimum: 1
+        RateLimit-Remaining:
+          description: Whole tokens left in the bucket (0 when limited)
+          schema:
+            type: integer
+            minimum: 0
+        RateLimit-Reset:
+          description: Seconds until the bucket is full again
+          schema:
+            type: integer
+            minimum: 0
       content:
         application/json:
           schema:
