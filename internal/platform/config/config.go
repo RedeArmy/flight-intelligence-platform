@@ -47,6 +47,7 @@ type Postgres struct {
 	Name             string
 	User             string // runtime role, fip_app
 	MigratorUser     string // DDL role used by cmd/migrate, fip_migrator
+	AdminUser        string // operator role used by cmd/keyctl, fip_admin
 	SSLMode          string // disable | verify-full (verify-full is required in production-like environments)
 	MaxConns         int
 	MinConns         int
@@ -147,6 +148,7 @@ func buildPostgres(p *parser) Postgres {
 		Name:             p.str("POSTGRES_DB", "fip"),
 		User:             p.str("POSTGRES_USER", "fip_app"),
 		MigratorUser:     p.str("POSTGRES_MIGRATOR_USER", "fip_migrator"),
+		AdminUser:        p.str("POSTGRES_ADMIN_USER", "fip_admin"),
 		SSLMode:          p.enum("POSTGRES_SSLMODE", sslVerifyFull, sslVerifyFull, "disable"),
 		MaxConns:         int(p.int64("POSTGRES_MAX_CONNS", 10, 1, 200)),
 		MinConns:         int(p.int64("POSTGRES_MIN_CONNS", 0, 0, 200)),
@@ -176,6 +178,9 @@ func validatePostgres(p *parser, cfg Config) {
 	}
 	if cfg.Postgres.SSLMode != sslVerifyFull && cfg.App.Env.IsProductionLike() {
 		p.fail("POSTGRES_SSLMODE", "must be verify-full in staging and production")
+	}
+	if cfg.Postgres.AdminUser == cfg.Postgres.User || cfg.Postgres.AdminUser == cfg.Postgres.MigratorUser {
+		p.fail("POSTGRES_ADMIN_USER", "must differ from the runtime and migrator roles")
 	}
 	if cfg.Postgres.User == cfg.Postgres.MigratorUser {
 		p.fail("POSTGRES_MIGRATOR_USER", "must differ from POSTGRES_USER: the runtime role must not be able to change the schema")

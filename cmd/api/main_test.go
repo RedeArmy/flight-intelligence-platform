@@ -26,6 +26,9 @@ func baseEnv(t *testing.T) map[string]string {
 	if err := writeFile(dir+"/postgres_password", "generated-"+strings.ReplaceAll(t.Name(), "/", "-")); err != nil {
 		t.Fatal(err)
 	}
+	if err := writeFile(dir+"/api_key_pepper", strings.Repeat("p", 40)); err != nil {
+		t.Fatal(err)
+	}
 	return map[string]string{
 		"APP_ENV":                  "test",
 		"LOG_LEVEL":                "error",
@@ -160,6 +163,27 @@ func TestRunFailsFastWithoutTheDatabasePassword(t *testing.T) {
 	err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "database password") {
 		t.Fatalf("run = %v", err)
+	}
+}
+
+func TestRunFailsFastWithoutAUsablePepper(t *testing.T) {
+	for name, pepper := range map[string]string{"missing": "", "too short": "short"} {
+		t.Run(name, func(t *testing.T) {
+			env := baseEnv(t)
+			dir := env["SECRETS_DIR"]
+			if err := os.Remove(dir + "/api_key_pepper"); err != nil {
+				t.Fatal(err)
+			}
+			if pepper != "" {
+				if err := writeFile(dir+"/api_key_pepper", pepper); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
+			if err == nil || (!strings.Contains(err.Error(), "pepper") && !strings.Contains(err.Error(), "at least")) {
+				t.Fatalf("run = %v", err)
+			}
+		})
 	}
 }
 

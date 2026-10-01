@@ -47,3 +47,12 @@ make run             # the API reads ./secrets and reports /readyz ready once Po
 make test-db         # separate throw-away database on 127.0.0.1:55432 for `make integration`
 ```
 The runtime role (`fip_app`) cannot change the schema or alter the audit log; see [ADR-031](docs/adr/ADR-031-postgresql-access-roles-migrations-secrets.md).
+
+### API keys
+Protected routes (such as `GET /v1/whoami`) need `Authorization: Bearer <key>`. Keys are issued by the operator tool, which connects as `fip_admin` and prints the token once ([ADR-027](docs/adr/ADR-027-api-key-format-hashing-rotation.md)):
+```bash
+go run ./cmd/keyctl client create -name my-app -role DEVELOPER
+go run ./cmd/keyctl key issue -client my-app          # 90-day key; the token is shown once
+go run ./cmd/keyctl key list
+go run ./cmd/keyctl key revoke -prefix <prefix>
+```

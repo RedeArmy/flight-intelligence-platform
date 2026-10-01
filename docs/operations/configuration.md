@@ -30,6 +30,7 @@ Configuration is read from environment variables at startup (Constitution sectio
 | `POSTGRES_DB` | string | `fip` | no | Database name. |
 | `POSTGRES_USER` | string | `fip_app` | no | Runtime role. Its password is the secret `postgres_password` (SecretStore, never configuration). |
 | `POSTGRES_MIGRATOR_USER` | string | `fip_migrator` | no | DDL role used only by `cmd/migrate`; must differ from `POSTGRES_USER`. Password is the secret `postgres_migrator_password`. |
+| `POSTGRES_ADMIN_USER` | string | `fip_admin` | no | Operator role used only by `cmd/keyctl`; must differ from the runtime and migrator roles. Password is the secret `postgres_admin_password`. |
 | `POSTGRES_SSLMODE` | enum: `verify-full`, `disable` | `verify-full` | no | TLS mode. `verify-full` is required in staging and production; `disable` is for local development only. |
 | `POSTGRES_MAX_CONNS` | integer, 1 to 200 | `10` | no | Maximum pool connections. |
 | `POSTGRES_MIN_CONNS` | integer, 0 to 200 | `0` | no | Minimum idle pool connections. Must not exceed `POSTGRES_MAX_CONNS`. |
@@ -40,8 +41,18 @@ Configuration is read from environment variables at startup (Constitution sectio
 
 Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 
+## Secrets (secret store, never configuration)
+| Secret | Read by | Purpose |
+|--------|---------|---------|
+| `postgres_password` | `cmd/api` | Password of the runtime role. |
+| `postgres_migrator_password` | `cmd/migrate` | Password of the DDL role. |
+| `postgres_admin_password` | `cmd/keyctl` | Password of the operator role. |
+| `api_key_pepper` | `cmd/api`, `cmd/keyctl` | Server-side pepper of the API key hash, at least 32 bytes (ADR-027). The API refuses to start without it. Rotating it invalidates every key. |
+
+`make local-secrets` generates all of them locally.
+
 ## Added by later E1 slices
-PostgreSQL, Redis, authentication, rate limits and telemetry keys arrive with their slices (S3 to S5) and are added to this table in the same PR.
+Redis, rate limits and telemetry keys arrive with their slices (S4b and S5) and are added to this table in the same PR.
 
 ## Notes
 - `HTTP_ADDR` and `HTTP_OPERATOR_ADDR` may both use port `0` (any free port, for tests and ephemeral runs); otherwise they must differ.
