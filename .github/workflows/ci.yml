@@ -133,15 +133,52 @@ jobs:
       - name: No breaking changes to /v1 against the base branch
         run: sh ./scripts/openapi-breaking.sh origin/main
 
+  # Validates the migrations themselves (docs/operations/migrations-ci.md). It needs the base branch, to prove that
+  # nothing already applied was edited, and a real PostgreSQL, to prove that every migration applies, reverts and
+  # rebuilds the committed schema snapshot. The integration job below also runs these tests; this job gives the
+  # migration checks their own named result and makes the append-only rule explicit.
+  migrations:
+    name: migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: fip_test
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the append-only check compares with the merge base on the base branch
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Applied migrations are never edited, renamed or deleted
+        run: go run ./scripts/migrationcheck origin/main
+      - name: Migration policy (expand-only, explicit grants, numbering)
+        run: go test -count=1 ./migrations/
+      - name: Apply, revert one by one, round trip, and compare the schema with the committed snapshot
+        run: go test -tags integration -count=1 -v ./internal/platform/database/migrate/
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres@localhost:5432/fip_test?sslmode=disable
+
   integration:
     name: integration
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # Backing services are declared now so the job and its check name are stable; the images are
-    # pinned by digest in E1-7/E1-8 when the first integration tests exist.
+    # Backing services are declared so the job and its check name are stable; PostgreSQL is pinned by digest and
+    # Redis is pinned when the first Redis integration tests exist (S4).
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -179,6 +216,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    # Coverage includes the integration tests: the database code is only exercised against a real PostgreSQL, so unit
+    # tests alone under-report it badly. Same digest-pinned image as the other jobs.
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: fip_test
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,7 +238,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - run: make coverage
+      - run: make coverage-integration
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres@localhost:5432/fip_test?sslmode=disable
       - uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -203,7 +255,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [lint, test, arch, security, secrets, build, openapi, integration, sonar]
+    needs: [lint, test, arch, security, secrets, build, openapi, migrations, integration, sonar]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

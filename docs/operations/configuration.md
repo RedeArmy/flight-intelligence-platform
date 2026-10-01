@@ -25,6 +25,18 @@ Configuration is read from environment variables at startup (Constitution sectio
 | `HTTP_IDLE_TIMEOUT` | duration | `60s` | no | Keep-alive idle timeout. |
 | `HTTP_SHUTDOWN_TIMEOUT` | duration | `25s` | no | Grace period to finish in-flight requests on SIGINT/SIGTERM. |
 | `HTTP_MAX_BODY_BYTES` | integer, 1024 to 67108864 | `1048576` | no | Maximum request body size. |
+| `POSTGRES_HOST` | string | `localhost` | no | PostgreSQL host. |
+| `POSTGRES_PORT` | integer, 1 to 65535 | `5432` | no | PostgreSQL port. |
+| `POSTGRES_DB` | string | `fip` | no | Database name. |
+| `POSTGRES_USER` | string | `fip_app` | no | Runtime role. Its password is the secret `postgres_password` (SecretStore, never configuration). |
+| `POSTGRES_MIGRATOR_USER` | string | `fip_migrator` | no | DDL role used only by `cmd/migrate`; must differ from `POSTGRES_USER`. Password is the secret `postgres_migrator_password`. |
+| `POSTGRES_SSLMODE` | enum: `verify-full`, `disable` | `verify-full` | no | TLS mode. `verify-full` is required in staging and production; `disable` is for local development only. |
+| `POSTGRES_MAX_CONNS` | integer, 1 to 200 | `10` | no | Maximum pool connections. |
+| `POSTGRES_MIN_CONNS` | integer, 0 to 200 | `0` | no | Minimum idle pool connections. Must not exceed `POSTGRES_MAX_CONNS`. |
+| `POSTGRES_CONNECT_TIMEOUT` | duration | `5s` | no | Time allowed to establish a connection. |
+| `POSTGRES_STATEMENT_TIMEOUT` | duration | `15s` | no | Server-side statement timeout applied to every connection. |
+| `POSTGRES_MAX_CONN_LIFETIME` | duration | `30m` | no | Connections are recycled after this age. |
+| `SECRETS_DIR` | path | empty | no | Directory of secret files read by the local secret store (local and test only). Secrets can also come from `SECRET_<NAME>` environment variables. |
 
 Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 

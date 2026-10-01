@@ -1,0 +1,71 @@
+# Local development stack (ADR-025, ADR-028). Nothing here is a deployment target: no cloud vendor is chosen yet.
+# Slice S6 adds Redis, the OpenTelemetry collector, Jaeger, Prometheus and the api/worker containers.
+#
+#   make local-secrets   generate ./secrets (git-ignored) once
+#   make db-up           start PostgreSQL           (port 5432, loopback only, password auth)
+#   make test-db         start the throw-away test database (port 55432, loopback only, RAM-backed)
+name: fip-local
+
+x-postgres-image: &postgres-image postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+
+services:
+  postgres:
+    image: *postgres-image
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fip
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+      # Every connection needs a password, including loopback inside the container (the image's default pg_hba trusts
+      # localhost). Applies when the data volume is first created; recreate the volume to change an existing one.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    secrets:
+      - postgres_superuser_password
+      - postgres_migrator_password
+      - postgres_password
+      - postgres_admin_password
+      - postgres_readonly_password
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../postgres/roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+      - ./postgres/20-role-passwords.sql:/docker-entrypoint-initdb.d/20-role-passwords.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fip"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Throw-away database for integration tests. Trust authentication is acceptable only because it is bound to loopback,
+  # holds no real data and lives in memory; it must never be reused for anything else.
+  postgres-test:
+    profiles: ["test"]
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+secrets:
+  postgres_superuser_password:
+    file: ../../secrets/postgres_superuser_password
+  postgres_migrator_password:
+    file: ../../secrets/postgres_migrator_password
+  postgres_password:
+    file: ../../secrets/postgres_password
+  postgres_admin_password:
+    file: ../../secrets/postgres_admin_password
+  postgres_readonly_password:
+    file: ../../secrets/postgres_readonly_password
+
+volumes:
+  pgdata:

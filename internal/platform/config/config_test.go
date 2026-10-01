@@ -214,3 +214,51 @@ func TestEnvExampleIsValidAndComplete(t *testing.T) {
 		t.Fatalf(".env.example must load cleanly: %v", err)
 	}
 }
+
+func TestPostgresDefaults(t *testing.T) {
+	cfg := mustLoad(t, map[string]string{"APP_ENV": "local", "POSTGRES_SSLMODE": "disable"})
+	p := cfg.Postgres
+	if p.Host != "localhost" || p.Port != 5432 || p.Name != "fip" || p.User != "fip_app" || p.MigratorUser != "fip_migrator" {
+		t.Errorf("identity defaults = %+v", p)
+	}
+	if p.MaxConns != 10 || p.MinConns != 0 || p.ConnectTimeout != 5*time.Second ||
+		p.StatementTimeout != 15*time.Second || p.MaxConnLifetime != 30*time.Minute {
+		t.Errorf("pool defaults = %+v", p)
+	}
+	if cfg.Secrets.Dir != "" {
+		t.Errorf("SECRETS_DIR must default to empty, got %q", cfg.Secrets.Dir)
+	}
+}
+
+func TestPostgresDefaultsToStrictTLS(t *testing.T) {
+	if cfg := mustLoad(t, map[string]string{"APP_ENV": "local"}); cfg.Postgres.SSLMode != "verify-full" {
+		t.Fatalf("the default sslmode must be verify-full, got %q", cfg.Postgres.SSLMode)
+	}
+}
+
+func TestPostgresCrossFieldRules(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		key  string
+	}{
+		{"min above max", map[string]string{"APP_ENV": "local", "POSTGRES_MIN_CONNS": "20", "POSTGRES_MAX_CONNS": "5"}, "POSTGRES_MIN_CONNS"},
+		{"disabled TLS in production", map[string]string{"APP_ENV": "production", "POSTGRES_SSLMODE": "disable"}, "POSTGRES_SSLMODE"},
+		{"disabled TLS in staging", map[string]string{"APP_ENV": "staging", "POSTGRES_SSLMODE": "disable"}, "POSTGRES_SSLMODE"},
+		{"runtime role equals migrator role", map[string]string{"APP_ENV": "local", "POSTGRES_USER": "same", "POSTGRES_MIGRATOR_USER": "same"}, "POSTGRES_MIGRATOR_USER"},
+		{"bad sslmode value", map[string]string{"APP_ENV": "local", "POSTGRES_SSLMODE": "require"}, "POSTGRES_SSLMODE"},
+		{"port out of range", map[string]string{"APP_ENV": "local", "POSTGRES_PORT": "70000"}, "POSTGRES_PORT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(mapLookup(tc.env))
+			if _, ok := issuesOf(t, err)[tc.key]; !ok {
+				t.Fatalf("expected an issue for %s, got %v", tc.key, err)
+			}
+		})
+	}
+	prod := map[string]string{"APP_ENV": "production", "POSTGRES_SSLMODE": "verify-full"}
+	if _, err := Load(mapLookup(prod)); err != nil {
+		t.Errorf("verify-full must be accepted in production: %v", err)
+	}
+}

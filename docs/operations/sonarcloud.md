@@ -28,7 +28,7 @@ Once enabled, a failed or cancelled `sonar` job blocks the merge. The job waits 
 ## What runs
 
 - Triggers: every pull request from this repository and every push to `main`. Fork PRs are skipped because secrets are unavailable to them.
-- Steps: full-history checkout, `make coverage` (writes `coverage.out`), then `SonarSource/sonarqube-scan-action` (pinned by commit SHA).
+- Steps: full-history checkout, `make coverage-integration`, then `SonarSource/sonarqube-scan-action` (pinned by commit SHA). The job has a digest-pinned PostgreSQL service, because coverage includes the integration tests: the database code is only exercised against a real server, so unit tests alone under-report it. `coverage-integration` runs unit and integration tests with `-coverpkg=./...` and merges the repeated blocks (`scripts/covmerge`) into one `coverage.out`.
 - Settings: [sonar-project.properties](../../sonar-project.properties) (sources, exclusions, coverage path). Organization and project key come from variables so they are not hard-coded.
 
 ## Recommended SonarCloud settings
@@ -48,3 +48,9 @@ add its check name (shown on the first PR, typically "SonarCloud Code Analysis")
 - "Project not found" or auth errors: check `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` and that the token can analyze the project.
 - "You are running CI analysis while Automatic Analysis is enabled": disable Automatic Analysis (prerequisite 3).
 - Coverage shows 0%: confirm `coverage.out` exists at the repository root in the job and `sonar.go.coverage.reportPaths` matches.
+
+## Coverage: what counts and why
+- Locally, `make coverage` runs the unit tests only (a quick check). `make coverage-integration` (needs `make test-db`) is what Sonar reads, and is the figure that matters for code that talks to PostgreSQL.
+- `dbtest` (the integration-test harness) is excluded from the coverage figure: it is test support, not production behaviour. It is still analysed for code smells.
+- `main` in `cmd/*` (signal handling and `os.Exit`) is deliberately not tested; `realMain` (exit code and stderr) and `run` are.
+- If coverage on new code drops, run `make coverage-integration` and look at `go tool cover -func=coverage.out` before adding tests.

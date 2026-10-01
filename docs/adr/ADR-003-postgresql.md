@@ -25,3 +25,7 @@ Using Redis or object storage as source of truth.
 
 ## Decision note (D5, 2026-09-30)
 Migration tool: **golang-migrate**. Driver: **pgx**. No ORM.
+
+## Decision note (E1 S3, 2026-10-01)
+Roles, migrations, secrets, TLS policy and the local database are decided in ADR-031. The first migrations create
+`api_clients`, `api_keys` and `audit_events` (append-only for every application role).
