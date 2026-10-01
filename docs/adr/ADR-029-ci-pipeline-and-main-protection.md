@@ -28,3 +28,10 @@ Third-party actions are pinned to full commit SHAs, workflow permissions default
 
 ## Rejected options
 Direct pushes to `main`; skipping checks for docs-only changes (required checks must always report).
+
+## Decision note (E1 S3, 2026-10-01): migration checks
+The pipeline gains a `migrations` job, required through `ci-gate`. It proves that migrations already merged are never
+edited, renamed or deleted (a Go command, `scripts/migrationcheck`, run from the merge base so it works on Windows and in
+CI), that the policy tests pass, and, against the digest-pinned PostgreSQL image, that each migration applies and reverts
+on its own, that `up-down-up` leaves the same schema without residue, and that the resulting schema and privileges equal
+a committed snapshot. See `docs/operations/migrations-ci.md`.

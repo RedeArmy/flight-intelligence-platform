@@ -70,6 +70,12 @@ func TestDownRequiresAtLeastOneStep(t *testing.T) {
 	}
 }
 
+func TestStepsRejectsZero(t *testing.T) {
+	if err := New(testConfig(), fstest.MapFS{}, nil).Steps(context.Background(), 0); err == nil {
+		t.Fatal("Steps(0) must be rejected")
+	}
+}
+
 func TestCancelledContextStopsBeforeConnecting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

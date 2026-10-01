@@ -4,6 +4,7 @@ package migrate_test
 
 import (
 	"context"
+	"io/fs"
 	"strings"
 	"sync"
 	"testing"
@@ -13,8 +14,25 @@ import (
 	"github.com/RedeArmy/flight-intelligence-platform/migrations"
 )
 
-// latest is the highest migration version in migrations/.
-const latest = 2
+// latest returns the highest migration version in migrations/, derived from the embedded files so that adding a
+// migration never requires editing a test.
+func latest(t *testing.T) uint {
+	t.Helper()
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n uint
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".up.sql") {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("no migrations found; the test is not checking anything")
+	}
+	return n
+}
 
 func tableExists(ctx context.Context, t *testing.T, env *dbtest.Env, name string) bool {
 	t.Helper()
@@ -32,6 +50,7 @@ func TestUpAppliesEverythingFromZeroAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	env := dbtest.New(t)
 	r := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil)
+	want := latest(t)
 
 	if v, dirty, err := r.Version(ctx); err != nil || v != 0 || dirty {
 		t.Fatalf("a fresh database must report version 0: %d dirty=%v err=%v", v, dirty, err)
@@ -42,8 +61,8 @@ func TestUpAppliesEverythingFromZeroAndIsIdempotent(t *testing.T) {
 	if err := r.Up(ctx); err != nil {
 		t.Fatalf("a second Up must be a no-op, got: %v", err)
 	}
-	if v, dirty, err := r.Version(ctx); err != nil || v != latest || dirty {
-		t.Fatalf("version = %d dirty=%v err=%v, want %d clean", v, dirty, err, latest)
+	if v, dirty, err := r.Version(ctx); err != nil || v != want || dirty {
+		t.Fatalf("version = %d dirty=%v err=%v, want %d clean", v, dirty, err, want)
 	}
 	for _, table := range []string{"api_clients", "api_keys", "audit_events"} {
 		if !tableExists(ctx, t, env, table) {
@@ -57,24 +76,25 @@ func TestDownRollsBackStepByStepAndUpRestores(t *testing.T) {
 	ctx := context.Background()
 	env := dbtest.NewMigrated(t)
 	r := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil)
+	want := latest(t)
 
 	if err := r.Down(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	if v, _, _ := r.Version(ctx); v != latest-1 || tableExists(ctx, t, env, "audit_events") || !tableExists(ctx, t, env, "api_keys") {
-		t.Fatalf("after one step down: version %d", v)
+	if v, dirty, _ := r.Version(ctx); v != want-1 || dirty {
+		t.Fatalf("after one step down: version %d dirty=%v, want %d", v, dirty, want-1)
 	}
-	if err := r.Down(ctx, 1); err != nil {
+	if err := r.Down(ctx, int(want-1)); err != nil {
 		t.Fatal(err)
 	}
-	if v, _, _ := r.Version(ctx); v != 0 || tableExists(ctx, t, env, "api_keys") {
-		t.Fatalf("after two steps down: version %d", v)
+	if v, dirty, _ := r.Version(ctx); v != 0 || dirty || tableExists(ctx, t, env, "api_keys") {
+		t.Fatalf("after rolling everything back: version %d dirty=%v", v, dirty)
 	}
 	if err := r.Up(ctx); err != nil {
 		t.Fatalf("Up after a full rollback: %v", err)
 	}
-	if v, dirty, _ := r.Version(ctx); v != latest || dirty {
-		t.Fatalf("version = %d dirty=%v", v, dirty)
+	if v, dirty, _ := r.Version(ctx); v != want || dirty {
+		t.Fatalf("version = %d dirty=%v, want %d", v, dirty, want)
 	}
 }
 
@@ -85,7 +105,7 @@ func TestMigratorOwnsTheSchemaObjects(t *testing.T) {
 	conn := env.Super(ctx)
 	defer conn.Close(ctx)
 
-	rows, err := conn.Query(ctx, `SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('api_clients','api_keys','audit_events')`)
+	rows, err := conn.Query(ctx, `SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +121,8 @@ func TestMigratorOwnsTheSchemaObjects(t *testing.T) {
 			t.Errorf("%s is owned by %s, want %s: the runtime role must never own schema objects", table, owner, dbtest.RoleMigrator)
 		}
 	}
-	if seen != 3 {
-		t.Errorf("found %d application tables, want 3", seen)
+	if seen == 0 {
+		t.Error("found no application tables; the test is not checking anything")
 	}
 }
 
@@ -127,7 +147,7 @@ func TestConcurrentRunnersDoNotCorruptTheSchema(t *testing.T) {
 			t.Errorf("concurrent Up failed: %v", err)
 		}
 	}
-	if v, dirty, err := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil).Version(ctx); err != nil || v != latest || dirty {
+	if v, dirty, err := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil).Version(ctx); err != nil || v != latest(t) || dirty {
 		t.Fatalf("version = %d dirty=%v err=%v", v, dirty, err)
 	}
 }

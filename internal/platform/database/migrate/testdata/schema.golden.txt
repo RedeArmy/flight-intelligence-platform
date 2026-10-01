@@ -1,0 +1,83 @@
+-- tables (name, owner)
+api_clients	fip_migrator
+api_keys	fip_migrator
+audit_events	fip_migrator
+
+-- columns (table, column, type, nullable, default)
+api_clients	id	uuid	NO	
+api_clients	name	text	NO	
+api_clients	role	text	NO	
+api_clients	active	boolean	NO	true
+api_clients	created_at	timestamp with time zone	NO	now()
+api_keys	id	uuid	NO	
+api_keys	client_id	uuid	NO	
+api_keys	prefix	text	NO	
+api_keys	secret_hmac	bytea	NO	
+api_keys	created_at	timestamp with time zone	NO	now()
+api_keys	expires_at	timestamp with time zone	YES	
+api_keys	revoked_at	timestamp with time zone	YES	
+api_keys	last_used_at	timestamp with time zone	YES	
+audit_events	id	uuid	NO	
+audit_events	occurred_at	timestamp with time zone	NO	now()
+audit_events	actor_client_id	uuid	YES	
+audit_events	actor_label	text	YES	
+audit_events	action	text	NO	
+audit_events	resource_type	text	YES	
+audit_events	resource_id	text	YES	
+audit_events	outcome	text	NO	
+audit_events	request_id	text	YES	
+audit_events	details	jsonb	NO	'{}'::jsonb
+
+-- constraints (table, name, definition)
+api_clients	api_clients_name_key	UNIQUE (name)
+api_clients	api_clients_name_length	CHECK (((char_length(name) >= 1) AND (char_length(name) <= 128)))
+api_clients	api_clients_pkey	PRIMARY KEY (id)
+api_clients	api_clients_role_valid	CHECK ((role = ANY (ARRAY['USER'::text, 'DEVELOPER'::text, 'OPERATOR'::text, 'ADMIN'::text, 'SERVICE'::text])))
+api_keys	api_keys_client_id_fkey	FOREIGN KEY (client_id) REFERENCES api_clients(id)
+api_keys	api_keys_expiry_after_creation	CHECK (((expires_at IS NULL) OR (expires_at > created_at)))
+api_keys	api_keys_hmac_length	CHECK ((octet_length(secret_hmac) = 32))
+api_keys	api_keys_pkey	PRIMARY KEY (id)
+api_keys	api_keys_prefix_format	CHECK ((prefix ~ '^[A-Za-z0-9]{8}$'::text))
+api_keys	api_keys_prefix_key	UNIQUE (prefix)
+audit_events	audit_events_action_format	CHECK ((action ~ '^[a-z][a-z0-9_.]{1,63}$'::text))
+audit_events	audit_events_actor_client_id_fkey	FOREIGN KEY (actor_client_id) REFERENCES api_clients(id)
+audit_events	audit_events_details_object	CHECK ((jsonb_typeof(details) = 'object'::text))
+audit_events	audit_events_outcome_valid	CHECK ((outcome = ANY (ARRAY['success'::text, 'failure'::text, 'denied'::text])))
+audit_events	audit_events_pkey	PRIMARY KEY (id)
+
+-- indexes (table, name, definition)
+api_clients	api_clients_name_key	CREATE UNIQUE INDEX api_clients_name_key ON public.api_clients USING btree (name)
+api_clients	api_clients_pkey	CREATE UNIQUE INDEX api_clients_pkey ON public.api_clients USING btree (id)
+api_keys	api_keys_client_id_idx	CREATE INDEX api_keys_client_id_idx ON public.api_keys USING btree (client_id)
+api_keys	api_keys_pkey	CREATE UNIQUE INDEX api_keys_pkey ON public.api_keys USING btree (id)
+api_keys	api_keys_prefix_key	CREATE UNIQUE INDEX api_keys_prefix_key ON public.api_keys USING btree (prefix)
+audit_events	audit_events_actor_idx	CREATE INDEX audit_events_actor_idx ON public.audit_events USING btree (actor_client_id, occurred_at DESC)
+audit_events	audit_events_occurred_at_idx	CREATE INDEX audit_events_occurred_at_idx ON public.audit_events USING btree (occurred_at DESC)
+audit_events	audit_events_pkey	CREATE UNIQUE INDEX audit_events_pkey ON public.audit_events USING btree (id)
+
+-- table privileges (table, grantee, privilege), owner excluded
+api_clients	fip_admin	INSERT
+api_clients	fip_admin	SELECT
+api_clients	fip_admin	UPDATE
+api_clients	fip_app	SELECT
+api_clients	fip_readonly	SELECT
+api_keys	fip_admin	INSERT
+api_keys	fip_admin	SELECT
+api_keys	fip_app	SELECT
+audit_events	fip_admin	INSERT
+audit_events	fip_admin	SELECT
+audit_events	fip_app	INSERT
+audit_events	fip_readonly	SELECT
+
+-- column privileges (table, column, grantee, privilege)
+api_keys	client_id	fip_readonly	SELECT
+api_keys	created_at	fip_readonly	SELECT
+api_keys	expires_at	fip_admin	UPDATE
+api_keys	expires_at	fip_readonly	SELECT
+api_keys	id	fip_readonly	SELECT
+api_keys	last_used_at	fip_app	UPDATE
+api_keys	last_used_at	fip_readonly	SELECT
+api_keys	prefix	fip_readonly	SELECT
+api_keys	revoked_at	fip_admin	UPDATE
+api_keys	revoked_at	fip_readonly	SELECT
+

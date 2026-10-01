@@ -24,3 +24,9 @@ make local-secrets   # generate local dev passwords into ./secrets (git-ignored)
 make db-up           # start the local PostgreSQL (Docker Compose)
 make migrate         # apply all migrations as fip_migrator
 ```
+
+## CI checks
+The `migrations` job validates every change here: applied migrations are never edited, the policy tests pass, and on a
+real PostgreSQL each migration applies, reverts and re-applies, `up-down-up` rebuilds the same schema, and the schema
+equals the committed snapshot (`internal/platform/database/migrate/testdata/schema.golden.txt`). Run it locally with
+`make migration-check`. Details, failure guide and limits: [docs/operations/migrations-ci.md](../docs/operations/migrations-ci.md).

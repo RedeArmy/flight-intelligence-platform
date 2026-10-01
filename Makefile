@@ -29,10 +29,10 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate test test-race integration coverage arch security vuln sast secrets build ci
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate test test-race integration coverage arch security vuln sast secrets build ci
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage arch security vuln sast secrets build ci
 	@echo Planned (added by later E1 slices): dev restore-drill
 
 setup: tools hooks ## Install pinned tools and enable git hooks
@@ -99,6 +99,15 @@ test-db-down: ## Remove the throw-away integration-test PostgreSQL
 
 migrate: ## Apply database migrations to the local PostgreSQL as fip_migrator
 	go run ./cmd/migrate up
+
+# Validates the migrations end to end: nothing already applied was edited, the policy tests pass, and against a real
+# PostgreSQL every migration applies and reverts, up-down-up rebuilds the same schema, and the schema equals the
+# committed snapshot. Needs make test-db (the DSN is explicit, so a missing database fails instead of skipping).
+migration-check: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable
+migration-check: ## Validate the migrations (append-only, policy, round trip, schema snapshot)
+	go run ./scripts/migrationcheck origin/main
+	go test -count=1 ./migrations/
+	go test -tags integration -count=1 ./internal/platform/database/migrate/
 
 test: ## Unit tests
 	go test -count=1 ./...

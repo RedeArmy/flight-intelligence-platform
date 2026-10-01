@@ -44,7 +44,16 @@ func (r *Runner) Down(ctx context.Context, steps int) error {
 	if steps < 1 {
 		return errors.New("migrate: steps must be at least 1")
 	}
-	return r.run(ctx, func(m *gomigrate.Migrate) error { return m.Steps(-steps) })
+	return r.Steps(ctx, -steps)
+}
+
+// Steps applies n migrations when n is positive, or rolls back -n migrations when n is negative. It lets tooling and
+// CI move one migration at a time to check each one on its own.
+func (r *Runner) Steps(ctx context.Context, n int) error {
+	if n == 0 {
+		return errors.New("migrate: steps must not be zero")
+	}
+	return r.run(ctx, func(m *gomigrate.Migrate) error { return m.Steps(n) })
 }
 
 // Version returns the current version and whether the last migration left the database dirty (half applied).

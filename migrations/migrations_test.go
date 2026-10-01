@@ -1,7 +1,6 @@
 package migrations
 
 import (
-	"fmt"
 	"io/fs"
 	"regexp"
 	"sort"
@@ -129,16 +128,5 @@ func TestDownMigrationsAreCommentedAsDevelopmentOnly(t *testing.T) {
 		if !strings.Contains(strings.ToLower(m.down), "development only") {
 			t.Errorf("%04d_%s down migration must state that it is for local development only", m.version, m.name)
 		}
-	}
-}
-
-func TestVersionsAreReportedInOrder(t *testing.T) {
-	var got []string
-	for _, m := range load(t) {
-		got = append(got, fmt.Sprintf("%04d_%s", m.version, m.name))
-	}
-	want := []string{"0001_api_clients_keys", "0002_audit_events"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("migrations = %v, want %v (update this test when adding a migration)", got, want)
 	}
 }
