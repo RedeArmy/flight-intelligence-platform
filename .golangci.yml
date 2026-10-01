@@ -23,7 +23,11 @@ linters:
     - nilerr
     - rowserrcheck
     - sqlclosecheck
+    - gocognit
   settings:
+    gocognit:
+      # Matches SonarCloud's Cognitive Complexity threshold so findings surface locally first.
+      min-complexity: 15
     depguard:
       rules:
         no-cloud-sdks:
