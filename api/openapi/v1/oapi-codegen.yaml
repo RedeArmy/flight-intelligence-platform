@@ -1,0 +1,7 @@
+# oapi-codegen configuration. Run from the repository root: make generate
+package: openapi
+output: internal/platform/httpserver/openapi/api.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true

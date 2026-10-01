@@ -7,6 +7,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"time"
 )
@@ -112,10 +113,17 @@ func validateCross(p *parser, cfg Config) {
 	if cfg.Log.Format == "text" && cfg.App.Env.IsProductionLike() {
 		p.fail("LOG_FORMAT", "text is allowed only in local and test environments")
 	}
-	if cfg.HTTP.Addr == cfg.HTTP.OperatorAddr {
+	if sameListener(cfg.HTTP.Addr, cfg.HTTP.OperatorAddr) {
 		p.fail("HTTP_OPERATOR_ADDR", "must differ from HTTP_ADDR: operator routes must not share the public listener")
 	}
 	if cfg.HTTP.ReadHeaderTimeout > cfg.HTTP.ReadTimeout {
 		p.fail("HTTP_READ_HEADER_TIMEOUT", "must not exceed HTTP_READ_TIMEOUT")
 	}
+}
+
+// sameListener reports whether two listen addresses would bind the same socket. Port 0 means "any free port",
+// so two port-0 addresses are different listeners.
+func sameListener(a, b string) bool {
+	_, portA, _ := net.SplitHostPort(a)
+	return a == b && portA != "0"
 }

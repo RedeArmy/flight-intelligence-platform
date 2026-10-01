@@ -32,5 +32,11 @@ E1 slice S1 introduces the first shared code: how errors are classified and expo
 ## Rejected options
 Logging full provider responses; configuration read from files in production; secrets as plain strings in configuration structs.
 
-## Addendum (planned with S2)
-HTTP error mapping, middleware order, the two listeners and readiness semantics are specified in `docs/roadmap/e1-design.md` section 5.4 and will be confirmed here when slice S2 lands.
+## Addendum (E1 S2, 2026-10-01): HTTP conventions
+- **Error mapping.** Kind to status lives only in `internal/platform/httpserver`: invalid 400, unauthenticated 401, forbidden 403, not_found 404, conflict 409, rate_limited 429, unavailable 503, timeout 504, internal 500. HTTP-only codes: `METHOD_NOT_ALLOWED` (405), `PAYLOAD_TOO_LARGE` (413). The envelope is `{"error":{"code","message","requestId","details"}}`, identical to the OpenAPI `ErrorResponse`; a test keeps them in step. Server-side failures are logged with their cause; clients never see it.
+- **Middleware order.** request ID, access log, panic recovery, security headers, body limit, then per route the access policy (authenticate, authorise). Access log sits outside recovery so a recovered panic is logged as a 500. Rate limiting (S4) and OpenTelemetry (S5) slot into this chain.
+- **Request IDs.** An inbound `X-Request-Id` is accepted only if it matches `^[A-Za-z0-9._-]{8,64}$`; otherwise a `req_` ID is generated. It is echoed on every response and appears in every log line and error body.
+- **Access control.** An explicit route-policy table (public, or required permission) is deny-by-default: a registered route missing from it answers 500 `ROUTE_POLICY_MISSING`. A test cross-checks the table, the registered routes and the OpenAPI contract (`security: []` means public, `x-permission` must match) in both directions. The default `Authenticator` rejects everything until the API-key authenticator lands in S4.
+- **Listeners.** Public and operator listeners are separate sockets with separate routers; operator routes can never be reached through the public port (SR-21). Operator address defaults to loopback.
+- **Probes.** `/healthz` (liveness, no dependencies) and `/readyz` (critical check failure or draining gives 503; an optional dependency failing gives `degraded` with 200) are public and unversioned.
+- **Shutdown.** SIGINT/SIGTERM flips readiness to not ready, stops accepting connections, gives in-flight requests `HTTP_SHUTDOWN_TIMEOUT` to finish, then force-closes and reports an error.

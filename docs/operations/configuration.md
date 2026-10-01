@@ -30,3 +30,7 @@ Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 
 ## Added by later E1 slices
 PostgreSQL, Redis, authentication, rate limits and telemetry keys arrive with their slices (S3 to S5) and are added to this table in the same PR.
+
+## Notes
+- `HTTP_ADDR` and `HTTP_OPERATOR_ADDR` may both use port `0` (any free port, for tests and ephemeral runs); otherwise they must differ.
+- The API logs one `request` record per call with the route template, never the raw path, query string, headers or body.

@@ -30,3 +30,10 @@ make ci      # everything CI runs: vet, lint, workflow lint, tests, architecture
 ```
 
 `main` is protected: work on a branch and open a pull request ([CONTRIBUTING.md](CONTRIBUTING.md), [branch protection](docs/operations/branch-protection.md), [SonarCloud](docs/operations/sonarcloud.md)).
+
+Run the API locally (needs `APP_ENV`; copy `.env.example` to `.env` first):
+
+```bash
+make run     # serves on :8080 (public) and 127.0.0.1:8081 (operator)
+curl -i http://localhost:8080/healthz
+```

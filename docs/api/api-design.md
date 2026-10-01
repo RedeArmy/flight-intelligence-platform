@@ -83,3 +83,18 @@ guide, minimum notice period (proposed 6 months for external consumers, recorded
 
 Orders, payments, tickets, servicing, travel planning, hotels, activities: separate path prefixes
 (`/v1/orders` …) added only with their bounded contexts; AI tool schemas derived from this OpenAPI.
+
+## 7. Implemented so far (E1 S2, 2026-10-01)
+
+The contract of record is [api/openapi/v1/openapi.yaml](../../api/openapi/v1/openapi.yaml) (OpenAPI 3.0.3, see ADR-005 note).
+The server and its types are generated from it; routes, access policies and the error envelope are tested against it.
+
+| Operation | Path | Access | Notes |
+|-----------|------|--------|-------|
+| `getHealthz` | `GET /healthz` | public | Liveness. Unversioned, no dependency checks. |
+| `getReadyz` | `GET /readyz` | public | `ready` or `degraded` give 200; `not_ready` (critical check failing, or shutting down) gives 503. |
+| `getWhoami` | `GET /v1/whoami` | permission `whoami:read` | Returns the calling client and role. Closed (401) until the API-key authenticator lands in S4. |
+
+Conventions in force: every response carries `X-Request-Id`; every error uses the `ErrorResponse` envelope with a stable `code`;
+a missing, invalid, expired or revoked key always answers the same 401 with `WWW-Authenticate: Bearer`; unknown paths answer a JSON 404 and wrong
+methods a JSON 405. Operator routes (`/metrics`, admin) live on a separate listener and are not part of this contract.

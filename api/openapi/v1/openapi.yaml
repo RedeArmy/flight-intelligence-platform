@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: Flight Intelligence Platform API
+  version: 1.0.0
+  description: |
+    Flight data and intelligence API. Contract of record for `/v1` (ADR-005, ADR-015).
+
+    **Price semantics.** Prices returned by flight endpoints (added in later phases) are *observations* unless
+    explicitly marked verified. An observed price is what a provider returned at a given time and is not a purchase
+    guarantee.
+
+    **Compatibility.** Within `/v1` changes are additive only. Clients must tolerate new optional fields and new
+    enum values.
+
+    **Errors.** Every error uses the `ErrorResponse` envelope and a stable `code`.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - BearerAuth: []
+tags:
+  - name: operations
+    description: Unversioned operational endpoints for probes
+  - name: identity
+    description: Information about the calling API client
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      tags: [operations]
+      summary: Liveness probe
+      description: Returns 200 while the process is running. Does not check dependencies.
+      security: []
+      responses:
+        "200":
+          description: The process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Liveness"
+  /readyz:
+    get:
+      operationId: getReadyz
+      tags: [operations]
+      summary: Readiness probe
+      description: |
+        Returns 200 when the service can take traffic (`ready`, or `degraded` when only optional dependencies are
+        failing) and 503 when a critical dependency is failing or the service is shutting down.
+      security: []
+      responses:
+        "200":
+          description: Ready or degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /v1/whoami:
+    get:
+      operationId: getWhoami
+      tags: [identity]
+      summary: Identify the calling API client
+      description: Returns the client and role the presented API key resolves to.
+      x-permission: whoami:read
+      responses:
+        "200":
+          description: The calling client
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Whoami"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Internal"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key (fip_<prefix>_<secret>)
+      description: "Send the API key in the Authorization header as: Bearer <key>"
+  headers:
+    RequestId:
+      description: Identifier of this request, also present in the `error.requestId` field of error responses.
+      schema:
+        type: string
+        example: req_3f9c2a7d41b8e6a0
+  responses:
+    Unauthenticated:
+      description: Missing, invalid, expired or revoked credentials
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: The client is authenticated but not allowed to perform this operation
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+            minimum: 0
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Internal:
+      description: Unexpected server error. No internal detail is returned.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code (UPPER_SNAKE_CASE).
+          example: UNAUTHENTICATED
+        message:
+          type: string
+          description: Human-readable, client-safe message.
+          example: authentication required
+        requestId:
+          type: string
+          example: req_3f9c2a7d41b8e6a0
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured, client-safe detail.
+    Liveness:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Readiness:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded, not_ready]
+        checks:
+          type: object
+          description: Result of each dependency check, `ok` or `failed`.
+          additionalProperties:
+            type: string
+    Whoami:
+      type: object
+      required: [clientId, role]
+      properties:
+        clientId:
+          type: string
+          description: Identifier of the API client.
+        role:
+          type: string
+          enum: [USER, DEVELOPER, OPERATOR, ADMIN, SERVICE]
