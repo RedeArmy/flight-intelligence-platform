@@ -166,22 +166,32 @@ func TestRunFailsFastWithoutTheDatabasePassword(t *testing.T) {
 	}
 }
 
+// envWithPepper is baseEnv with the pepper file replaced; an empty pepper removes the file.
+func envWithPepper(t *testing.T, pepper string) map[string]string {
+	t.Helper()
+	env := baseEnv(t)
+	path := env["SECRETS_DIR"] + "/api_key_pepper"
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if pepper != "" {
+		if err := writeFile(path, pepper); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return env
+}
+
 func TestRunFailsFastWithoutAUsablePepper(t *testing.T) {
-	for name, pepper := range map[string]string{"missing": "", "too short": "short"} {
+	cases := map[string]struct{ pepper, want string }{
+		"missing":   {"", "pepper"},
+		"too short": {"short", "at least"},
+	}
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			env := baseEnv(t)
-			dir := env["SECRETS_DIR"]
-			if err := os.Remove(dir + "/api_key_pepper"); err != nil {
-				t.Fatal(err)
-			}
-			if pepper != "" {
-				if err := writeFile(dir+"/api_key_pepper", pepper); err != nil {
-					t.Fatal(err)
-				}
-			}
-			err := run(context.Background(), runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
-			if err == nil || (!strings.Contains(err.Error(), "pepper") && !strings.Contains(err.Error(), "at least")) {
-				t.Fatalf("run = %v", err)
+			err := run(context.Background(), runOptions{Lookup: lookupOf(envWithPepper(t, c.pepper)), Stdout: io.Discard})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("run = %v, want it to contain %q", err, c.want)
 			}
 		})
 	}
