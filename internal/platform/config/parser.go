@@ -93,6 +93,12 @@ func (p *parser) str(key, def string) string {
 	return v
 }
 
+// optional returns the value, or "" when the key is not set. Unlike str it never reports a missing key.
+func (p *parser) optional(key string) string {
+	v, _ := p.raw(key)
+	return v
+}
+
 func (p *parser) enum(key, def string, allowed ...string) string {
 	v, ok := p.value(key, def)
 	if !ok {
