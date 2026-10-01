@@ -28,17 +28,18 @@ const (
 	readinessTimeout = 2 * time.Second
 )
 
+// main only wires the operating system: signals, the real environment and the process exit code.
 func main() {
-	os.Exit(realMain())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := realMain(ctx, runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout}, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
-func realMain() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	err := run(ctx, runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "api:", err)
+// realMain runs the API and turns its result into an exit code: 0 after a clean stop, 1 with the error on stderr.
+func realMain(ctx context.Context, o runOptions, stderr io.Writer) int {
+	if err := run(ctx, o); err != nil {
+		fmt.Fprintln(stderr, "api:", err)
 		return 1
 	}
 	return 0

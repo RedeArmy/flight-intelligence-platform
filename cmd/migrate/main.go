@@ -30,17 +30,18 @@ import (
 // migratorPasswordSecret is the name of the secret in the secret store, not a credential.
 const migratorPasswordSecret = "postgres_migrator_password" // #nosec G101 -- a secret name, not a secret
 
+// main only wires the operating system: signals, the real environment and the process exit code.
 func main() {
-	os.Exit(realMain())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := realMain(ctx, os.Args[1:], runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout}, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
-func realMain() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	err := run(ctx, os.Args[1:], runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "migrate:", err)
+// realMain runs the command and turns its result into an exit code: 0 on success, 1 with the error on stderr.
+func realMain(ctx context.Context, args []string, o runOptions, stderr io.Writer) int {
+	if err := run(ctx, args, o); err != nil {
+		fmt.Fprintln(stderr, "migrate:", err)
 		return 1
 	}
 	return 0

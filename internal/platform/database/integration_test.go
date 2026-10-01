@@ -358,3 +358,75 @@ func TestWrongPasswordIsRefusedWithoutLeakingIt(t *testing.T) {
 		t.Fatalf("the error leaked the password: %v", err)
 	}
 }
+
+func TestQueryQueryRowExecAndStatGoThroughThePool(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := dbtest.NewMigrated(t)
+	fixtures(ctx, t, env)
+	pool := openPool(t, env.Config(dbtest.RoleApp))
+
+	rows, err := pool.Query(ctx, `SELECT name, role FROM api_clients`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for rows.Next() {
+		var name, role string
+		if err := rows.Scan(&name, &role); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name+"/"+role)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(names) != 1 || names[0] != "fixture-client/DEVELOPER" {
+		t.Fatalf("rows=%v err=%v", names, err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM api_keys`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("QueryRow count=%d err=%v", count, err)
+	}
+
+	tag, err := pool.Exec(ctx, `UPDATE api_keys SET last_used_at = now()`)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("Exec rows=%d err=%v", tag.RowsAffected(), err)
+	}
+	if stat := pool.Stat(); stat == nil || stat.MaxConns() != 4 {
+		t.Fatalf("Stat = %+v, want MaxConns 4 (the dbtest configuration)", stat)
+	}
+}
+
+func TestQueryReportsAPrivilegeErrorThroughClassify(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := dbtest.NewMigrated(t)
+	pool := openPool(t, env.Config(dbtest.RoleApp))
+
+	rows, err := pool.Query(ctx, `SELECT * FROM audit_events`) // fip_app cannot read the audit log
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+		}
+		err = database.Classify(rows.Err())
+	}
+	if sharederrors.CodeOf(err) != database.CodeDBPrivilege {
+		t.Fatalf("err = %v, want a privilege error", err)
+	}
+}
+
+func TestWithTxOnAClosedPoolFailsWithoutRunningTheCallback(t *testing.T) {
+	t.Parallel()
+	env := dbtest.NewMigrated(t)
+	pool, err := database.Open(context.Background(), env.Config(dbtest.RoleApp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+
+	called := false
+	err = pool.WithTx(context.Background(), pgx.TxOptions{}, func(pgx.Tx) error { called = true; return nil })
+	if err == nil || called {
+		t.Fatalf("a closed pool must fail before running the callback: err=%v called=%v", err, called)
+	}
+}

@@ -3,8 +3,10 @@
 package migrate_test
 
 import (
+	"bytes"
 	"context"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -164,5 +166,54 @@ func TestTheRuntimeRoleCannotRunMigrations(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), string(env.Password(dbtest.RoleApp).Reveal())) || strings.Contains(err.Error(), "pgx5://") {
 		t.Errorf("the error leaked the connection string or password: %v", err)
+	}
+}
+
+func TestProgressIsLoggedWithoutLeakingCredentials(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := dbtest.New(t)
+	var out bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&out, nil))
+
+	if err := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, logger).Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	logged := out.String()
+	for _, want := range []string{"api_clients_keys", "audit_events", "component=migrate"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("the progress log is missing %q:\n%s", want, logged)
+		}
+	}
+	if strings.Contains(logged, string(env.Password(dbtest.RoleMigrator).Reveal())) || strings.Contains(logged, "pgx5://") {
+		t.Errorf("the progress log leaked the connection string or password:\n%s", logged)
+	}
+}
+
+func TestRollingBackWhenNothingIsAppliedIsAnErrorWithoutLeakingCredentials(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := dbtest.New(t) // roles exist, no migrations applied
+	r := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil)
+
+	err := r.Down(ctx, 1)
+	if err == nil {
+		t.Fatal("there is nothing to roll back; the runner must say so instead of reporting success")
+	}
+	if strings.Contains(err.Error(), "pgx5://") || strings.Contains(err.Error(), string(env.Password(dbtest.RoleMigrator).Reveal())) {
+		t.Errorf("the error leaked the connection string or password: %v", err)
+	}
+}
+
+func TestACancelledContextStopsAMigrationRun(t *testing.T) {
+	t.Parallel()
+	env := dbtest.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := migrate.New(env.Config(dbtest.RoleMigrator), migrations.FS, nil).Up(ctx); err == nil {
+		t.Fatal("a cancelled context must stop the run before it changes the database")
+	}
+	if tableExists(context.Background(), t, env, "api_clients") {
+		t.Error("nothing may be applied when the context is already cancelled")
 	}
 }

@@ -2,7 +2,7 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "integration", "coverage", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
     [string]$Target = "help"
 )
 
@@ -62,7 +62,7 @@ function Scan-Secrets {
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -96,6 +96,12 @@ switch ($Target) {
         Invoke-Native go @("test", "-tags", "integration", "-count=1", "./...")
     }
     "coverage" { Invoke-Native go @("test", "-count=1", "-covermode=atomic", "-coverprofile=coverage.out", "./...") }
+    "coverage-integration" {
+        # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
+        if (-not $env:TEST_POSTGRES_DSN) { $env:TEST_POSTGRES_DSN = "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable" }
+        Invoke-Native go @("test", "-tags", "integration", "-count=1", "-covermode=atomic", "-coverpkg=./...", "-coverprofile=coverage.raw", "./...")
+        Invoke-Native go @("run", "./scripts/covmerge", "-in", "coverage.raw", "-out", "coverage.out")
+    }
     "arch" { Invoke-Native go @("test", "-count=1", "./internal/archtest/...") }
     "vuln" { Tools; Invoke-Native (Bin "govulncheck") @("./...") }
     "sast" { Tools; Invoke-Native (Bin "gosec") @("-quiet", "-exclude-generated", "./...") }

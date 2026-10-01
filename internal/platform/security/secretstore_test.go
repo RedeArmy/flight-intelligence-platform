@@ -127,3 +127,52 @@ func TestSecretValuesNeverAppearInErrorsOrFormatting(t *testing.T) {
 		t.Fatal("the returned Secret must redact itself")
 	}
 }
+
+func TestSecretsPathThatIsAFileIsAnErrorNotMissing(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := NewLocalStore(config.EnvLocal, lookupOf(nil), file)
+
+	_, err := store.Get(context.Background(), "some_secret")
+	if err == nil || stderrors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("a secrets directory that is a file is a misconfiguration, not a missing secret: %v", err)
+	}
+	if !strings.Contains(err.Error(), "secrets directory") {
+		t.Errorf("the error should name the problem: %v", err)
+	}
+}
+
+func TestSecretThatIsADirectoryCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "a_directory"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := NewLocalStore(config.EnvLocal, lookupOf(nil), dir)
+
+	_, err := store.Get(context.Background(), "a_directory")
+	if err == nil || stderrors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("a directory is not a secret and must not be reported as simply missing: %v", err)
+	}
+}
+
+func TestSymlinkOutOfTheDirectoryIsRefused(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside_secret")
+	if err := os.WriteFile(outside, []byte("must-not-be-read"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "linked_secret")); err != nil {
+		t.Skipf("cannot create symlinks here (on Windows this needs elevated rights): %v", err)
+	}
+	store, _ := NewLocalStore(config.EnvLocal, lookupOf(nil), dir)
+
+	got, err := store.Get(context.Background(), "linked_secret")
+	if err == nil {
+		t.Fatalf("a symlink that escapes the secrets directory must be refused, read %q", got.Reveal())
+	}
+	if strings.Contains(err.Error(), "must-not-be-read") {
+		t.Error("the error leaked the content of the file outside the directory")
+	}
+}

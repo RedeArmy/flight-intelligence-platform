@@ -216,6 +216,19 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    # Coverage includes the integration tests: the database code is only exercised against a real PostgreSQL, so unit
+    # tests alone under-report it badly. Same digest-pinned image as the other jobs.
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          # trust auth: the container lives only for this job and is reachable only from the runner (loopback)
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: fip_test
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -225,7 +238,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - run: make coverage
+      - run: make coverage-integration
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres@localhost:5432/fip_test?sslmode=disable
       - uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

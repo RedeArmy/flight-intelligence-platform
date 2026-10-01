@@ -29,10 +29,10 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage arch security vuln sast secrets build ci
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage arch security vuln sast secrets build ci
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
 	@echo Planned (added by later E1 slices): dev restore-drill
 
 setup: tools hooks ## Install pinned tools and enable git hooks
@@ -121,8 +121,16 @@ integration: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/pos
 integration: ## Integration tests against PostgreSQL (run make test-db first, or set TEST_POSTGRES_DSN)
 	go test -tags integration -count=1 ./...
 
-coverage: ## Unit tests with a coverage profile (used by SonarCloud)
+coverage: ## Unit tests only, with a coverage profile (quick local check)
 	go test -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+# What SonarCloud reads. Unit AND integration tests run, because the database code is only exercised against a real
+# PostgreSQL. -coverpkg=./... credits a package for code that tests in other packages exercise, and covmerge then writes
+# each block once (go test repeats a block once per test binary, and readers may keep only one of the copies).
+coverage-integration: export TEST_POSTGRES_DSN ?= postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable
+coverage-integration: ## Unit + integration coverage, merged into coverage.out (needs make test-db)
+	go test -tags integration -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.raw ./...
+	go run ./scripts/covmerge -in coverage.raw -out coverage.out
 
 arch: ## Architecture rules and docs link check
 	go test -count=1 ./internal/archtest/...

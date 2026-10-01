@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,5 +86,52 @@ func TestRunRejectsInvalidConfigurationAndUsage(t *testing.T) {
 	}
 	if err := run(context.Background(), nil, runOptions{Lookup: lookupOf(nil), Stdout: io.Discard}); err == nil {
 		t.Error("no arguments must be a usage error")
+	}
+}
+
+func TestRealMainReturnsTheExitCodeAndPrintsTheErrorOnStderr(t *testing.T) {
+	var stderr bytes.Buffer
+	o := runOptions{Lookup: lookupOf(map[string]string{}), Stdout: io.Discard}
+
+	if code := realMain(context.Background(), []string{"up"}, o, &stderr); code != 1 {
+		t.Fatalf("exit code = %d, want 1 for a failing command", code)
+	}
+	if !strings.HasPrefix(stderr.String(), "migrate: ") || !strings.Contains(stderr.String(), "APP_ENV") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+
+	stderr.Reset()
+	if code := realMain(context.Background(), nil, o, &stderr); code != 1 || !strings.Contains(stderr.String(), "usage") {
+		t.Errorf("no arguments: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunRejectsAnEnvFileThatSelectsProduction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("APP_ENV=production\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := run(context.Background(), []string{"up"}, runOptions{Lookup: lookupOf(map[string]string{}), DotEnvPath: path, Stdout: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "local and test") {
+		t.Fatalf("run = %v", err)
+	}
+}
+
+func TestVersionAgainstAnUnreachableDatabaseFailsWithoutLeakingTheSecret(t *testing.T) {
+	dir := t.TempDir()
+	const password = "unit-test-generated-value-0042"
+	if err := os.WriteFile(filepath.Join(dir, migratorPasswordSecret), []byte(password), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"APP_ENV": "test", "POSTGRES_HOST": "127.0.0.1", "POSTGRES_PORT": "1", "POSTGRES_SSLMODE": "disable",
+		"POSTGRES_CONNECT_TIMEOUT": "300ms", "SECRETS_DIR": dir,
+	}
+	err := run(context.Background(), []string{"version"}, runOptions{Lookup: lookupOf(env), Stdout: io.Discard})
+	if err == nil {
+		t.Fatal("an unreachable database must be an error")
+	}
+	if strings.Contains(err.Error(), password) || strings.Contains(err.Error(), "pgx5://") {
+		t.Fatalf("the error leaked the password or the connection string: %v", err)
 	}
 }

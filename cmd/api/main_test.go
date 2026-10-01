@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -184,4 +185,43 @@ func TestRunRejectsAnInsecureDatabaseModeInProduction(t *testing.T) {
 
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+func TestRealMainReturnsTheExitCodeAndPrintsTheErrorOnStderr(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := realMain(context.Background(), runOptions{Lookup: lookupOf(map[string]string{}), Stdout: io.Discard}, &stderr); code != 1 {
+		t.Fatalf("exit code = %d, want 1 for a startup failure", code)
+	}
+	if !strings.HasPrefix(stderr.String(), "api: ") || !strings.Contains(stderr.String(), "APP_ENV") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRealMainReturnsZeroAfterACleanStop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan struct{}, 1)
+	res := make(chan int, 1)
+	var stderr bytes.Buffer
+	go func() {
+		res <- realMain(ctx, runOptions{
+			Lookup: lookupOf(baseEnv(t)), Stdout: io.Discard,
+			OnListening: func(net.Addr, net.Addr) { addrs <- struct{}{} },
+		}, &stderr)
+	}()
+	select {
+	case <-addrs:
+	case code := <-res:
+		t.Fatalf("api ended early with code %d: %s", code, stderr.String())
+	case <-time.After(5 * time.Second):
+		t.Fatal("api did not start")
+	}
+	cancel()
+	select {
+	case code := <-res:
+		if code != 0 || stderr.Len() != 0 {
+			t.Fatalf("clean stop: code=%d stderr=%q", code, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("api did not stop")
+	}
 }
