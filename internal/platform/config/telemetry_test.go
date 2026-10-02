@@ -44,3 +44,18 @@ func TestTelemetryRules(t *testing.T) {
 		t.Errorf("https must be accepted in production: %v", err)
 	}
 }
+
+func TestWorkerHealthAddress(t *testing.T) {
+	if got := mustLoad(t, map[string]string{"APP_ENV": "local"}).Worker.HealthAddr; got != "127.0.0.1:8082" {
+		t.Errorf("default = %q: the worker's probes must listen on loopback by default", got)
+	}
+	if got := mustLoad(t, map[string]string{"APP_ENV": "local", "WORKER_HEALTH_ADDR": ":9100"}).Worker.HealthAddr; got != ":9100" {
+		t.Errorf("explicit = %q", got)
+	}
+	for _, bad := range []string{"localhost", ":70000", ":abc"} {
+		_, err := Load(mapLookup(map[string]string{"APP_ENV": "local", "WORKER_HEALTH_ADDR": bad}))
+		if _, ok := issuesOf(t, err)["WORKER_HEALTH_ADDR"]; !ok {
+			t.Errorf("%q must be rejected, got %v", bad, err)
+		}
+	}
+}

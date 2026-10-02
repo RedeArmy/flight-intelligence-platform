@@ -40,7 +40,15 @@ type Config struct {
 	Redis     Redis
 	Limits    RateLimits
 	Telemetry Telemetry
+	Worker    Worker
 	Secrets   Secrets
+}
+
+// Worker configures the background worker process (ADR-012, ADR-035).
+type Worker struct {
+	// HealthAddr is the listener of the worker's liveness and readiness probes. Loopback by default: the container
+	// runtime probes it from inside the container, and nothing outside needs it.
+	HealthAddr string
 }
 
 // Telemetry configures OpenTelemetry export (ADR-019, ADR-033). Without an endpoint nothing is exported, but spans
@@ -151,6 +159,7 @@ func build(p *parser) Config {
 		Redis:     buildRedis(p),
 		Limits:    buildLimits(p),
 		Telemetry: buildTelemetry(p),
+		Worker:    Worker{HealthAddr: p.addr("WORKER_HEALTH_ADDR", "127.0.0.1:8082")},
 		Secrets:   Secrets{Dir: p.optional("SECRETS_DIR")},
 	}
 }
