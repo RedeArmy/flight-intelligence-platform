@@ -1,6 +1,6 @@
 # E1 — Engineering Foundation: Design Plan
 
-Status: **APPROVED 2026-10-01 (Q1-Q5 answered; see section 12). No code written yet; S0 is next.** Process: Constitution §83 / §111 (design → review → ADR → plan → implement).
+Status: **IMPLEMENTED 2026-10-02 (S0 to S9 merged); closure review in [e1-closure.md](e1-closure.md).** Originally approved 2026-10-01 (Q1-Q5 answered; see section 12). Process: Constitution §83 / §111 (design → review → ADR → plan → implement).
 Scope source: roadmap E1 and backlog E1-1..E1-18 ([roadmap.md](roadmap.md), [backlog.md](backlog.md)). Deployment is local-only (D1).
 
 ## 1. Problem and goal

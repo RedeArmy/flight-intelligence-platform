@@ -16,7 +16,7 @@
 | C10 | Raw-response storage (§23) vs unknown provider terms | Off by default; per-provider opt-in after legal/contract review (A-4, R-2). |
 | C11 | Dedup by "fare characteristics" (§18) could merge distinct fares | Two-level fingerprint: itinerary vs offer (02-domain §7). |
 | C12 | Alert condition "Bookable" (§77) unsatisfiable for some providers | See C9. |
-| C13 | ASVS "5.x" (§40): exact version/levels not stated | Pin version + target level in an ADR at adoption; verify mapping then. |
+| C13 | ASVS "5.x" (§40): exact version/levels not stated | **Resolved 2026-10-02 (ADR-036):** ASVS 5.0.0, Level 2 target, Level 1 gate before E2 exits; chapter-level map in `docs/security/asvs-coverage.md`. |
 | C14 | Opportunity vs anomaly flow (§27) while ML is deferred (E10) | Phase 1 anomaly = deterministic outlier rule (e.g. robust z-score/percentile vs history) flagged as *candidate*; only verified candidates become opportunities. |
 | C15 | Currency handling unspecified | No conversion in Phase 1; compare only within same currency (INV-11). |
 

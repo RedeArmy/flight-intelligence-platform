@@ -1,7 +1,7 @@
 # Security Architecture, Requirements and Threat Model
 
-Baselines: OWASP ASVS (adopt a specific version and level in ADR; the constitution names 5.x — pin the
-exact revision and target level at adoption and verify chapter mapping then), NIST SSDF, OWASP SAMM.
+Baselines: OWASP ASVS **5.0.0, Level 2 target** ([ADR-036](../adr/ADR-036-owasp-asvs-adoption.md); chapter map in
+[asvs-coverage.md](asvs-coverage.md)), NIST SSDF, OWASP SAMM.
 No regulatory claim is made here.
 
 ## 1. Security requirements
