@@ -199,7 +199,11 @@ func redisEnv(t *testing.T, limits map[string]string) map[string]string {
 		t.Fatalf("TEST_REDIS_ADDR is set but Redis is unreachable: %v", err)
 	}
 	_ = conn.Close()
-	env := map[string]string{"REDIS_ADDR": addr, "REDIS_TLS": "false"}
+	// A generous Redis timeout: these tests are about the limiter working through Redis, not about timeouts. With the
+	// production default of 100 ms, a busy machine can make one Redis call slow enough for the limiter to fall back to
+	// its stricter local limits (ADR-032), which is correct behaviour and would make the test fail for the wrong reason.
+	// The outage test sets its own short timeout.
+	env := map[string]string{"REDIS_ADDR": addr, "REDIS_TLS": "false", "REDIS_TIMEOUT": "2s"}
 	for k, v := range limits {
 		env[k] = v
 	}
