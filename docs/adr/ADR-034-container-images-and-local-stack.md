@@ -36,6 +36,14 @@ from read-only files (edits are refused), the admin password from a Docker secre
 directory, no capabilities, the port on `127.0.0.1` only, and no outbound traffic (usage reports, update checks and plugin downloads are
 off). The image is pinned by tag and digest like the other Compose images.
 
+## Amendment (validation of the merged E1, 2026-10-02): PostgreSQL health checks probe over TCP
+Validating `main` in a fresh clone, `make stack` failed once from an empty data volume: the migration job was refused a connection. On a
+new volume the PostgreSQL image runs a temporary server that listens only on a Unix socket while it executes the init scripts, and a
+`pg_isready` over the socket answers "accepting connections" in that phase, so Compose considered the database healthy and started the job,
+which connects over TCP. The failure is rare (one in eight first starts without the fix, none in fifteen with it) because the window lasts
+milliseconds, but it breaks the first run on a new machine. The health checks of `postgres` and `postgres-test` now run
+`pg_isready -h 127.0.0.1`, which only succeeds once the real server is up, and an architecture test fails if one goes back to the socket.
+
 ## Alternatives considered
 - One image with every binary: simpler to publish, but the API image would contain tools that issue keys and change the schema.
 - A shell-based health check (`wget`, `curl`): needs a shell and extra binaries in the runtime image; the self-check keeps it empty.
