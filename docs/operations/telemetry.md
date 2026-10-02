@@ -38,11 +38,36 @@ Resource attributes: `service.name` (`api` or `worker`), `service.version`, `dep
 
 Every log record written while handling a request carries `request_id`, `trace_id` and `span_id`. To follow a request: take the `request_id` from the `X-Request-Id` response header or an error body, find its log lines, and open the trace with the `trace_id` in the tracing backend.
 
+## SLOs, alerts and the dashboard
+The availability SLO of `docs/operations/reliability-and-observability.md` is measured from `http_server_requests_total`:
+**good** requests (2xx and 3xx) over **valid** requests (2xx, 3xx and 5xx), for the `api` job, with the liveness and readiness
+probes excluded (they are not user traffic) and client errors (4xx) counted for neither side. The target is 99.9%, an error budget
+of 0.1%. All numbers are hypotheses to validate by measurement.
+
+| What | Where |
+|------|-------|
+| Recording rules `slo:api_error_ratio:rate5m`, `rate30m`, `rate1h`, `rate6h` | `deployments/local/prometheus-rules/slo.yml` |
+| `ApiAvailabilityFastBurn` (page): error ratio above 14.4 times the budget over 5 minutes **and** 1 hour | same file |
+| `ApiAvailabilitySlowBurn` (ticket): above 6 times the budget over 30 minutes **and** 6 hours | same file |
+| `ServiceNotReady` (page), `ServiceDegraded`, `DatabasePoolSaturated`, `DatabasePoolWaiting`, `AuthenticationFailuresHigh` (tickets) | same file |
+| Unit tests of every rule and alert | `deployments/local/prometheus-tests/slo_test.yml`, run by `make observability-check` |
+| Dashboard "Flight Intelligence: SLO overview" | `deployments/local/grafana/dashboards/slo-overview.json`, Grafana at `http://127.0.0.1:3000` |
+
+Every alert names its runbook in a `runbook` annotation, and every page links one of `docs/operations/runbooks/`. There is no
+Alertmanager in the local stack: firing alerts show in the Prometheus UI (Alerts) and in the dashboard's "Alerts firing" panel.
+
+**Grafana** is provisioned from files (the data source and the dashboards), so it holds no state: edit the JSON, not the dashboard
+(the UI refuses to save a provisioned dashboard). Log in as `admin` with the password in `secrets/grafana_admin_password`.
+It is published on `127.0.0.1` only and sends nothing out (no usage reports, update checks or plugin downloads).
+
+When a metric or label changes, update the catalogue above, the rules and the dashboard together: an architecture test fails when a
+panel or a rule uses a metric that is not in the catalogue, or an alert points to a runbook that does not exist.
+
 ## Try it locally
 
 1. Start the collector by hand (see the header of `deployments/local/otel-collector.yaml`; Compose gets it in S6).
 2. Run the API with `TELEMETRY_OTLP_ENDPOINT=http://127.0.0.1:4318`.
-3. Make some requests, then read `http://127.0.0.1:8889/metrics` for the Prometheus view; the collector's own log shows the traces it kept.
+3. Make some requests, then read `http://127.0.0.1:8889/metrics` for the Prometheus view; the collector's own log shows the traces it kept. With the full local stack (`make dev`), open Grafana at `http://127.0.0.1:3000` for the SLO dashboard and Jaeger at `http://127.0.0.1:16686` for traces.
 
 ## Adding telemetry
 

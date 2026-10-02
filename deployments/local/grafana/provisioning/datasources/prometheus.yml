@@ -1,0 +1,13 @@
+# The one data source of the local Grafana: the Prometheus of this stack. Provisioned, so it needs no manual setup and cannot
+# drift. The uid is referenced by the dashboards, and a test keeps them in step.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s # the scrape interval

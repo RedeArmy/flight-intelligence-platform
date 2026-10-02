@@ -2,7 +2,7 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "dockerfile-lint", "compose-check", "image-scan", "sbom", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "test-race-docker", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "dockerfile-lint", "compose-check", "observability-check", "image-scan", "sbom", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "test-race-docker", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
     [string]$Target = "help",
     # Extra arguments for targets that take some, for example: .\scripts\dev.ps1 keyctl key list
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -22,6 +22,8 @@ $OapiCodegenVersion = "v2.8.0"
 # Container tooling, pinned like in the Makefile (keep in sync with TRIVY_IMAGE, SYFT_IMAGE, HADOLINT_IMAGE there).
 $TrivyImage = "aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
 $SyftImage = "anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c"
+$PrometheusImage = "prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e"
+$OtelcolImage = "otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"
 $HadolintImage = "hadolint/hadolint:v2.15.1-debian@sha256:9a3944b7fddcb947d1ffd90829ac1a6e5c30479223358f249d8b96c7d0019e27"
 $RaceImage = "golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190"
 
@@ -71,7 +73,7 @@ function Scan-Secrets {
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check observability-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -98,6 +100,12 @@ switch ($Target) {
         if ($LASTEXITCODE -ne 0) { throw "hadolint failed with exit code $LASTEXITCODE" }
     }
     "compose-check" { Invoke-Native docker (Compose @("--profile", "app", "--profile", "tools", "--profile", "test", "config", "-q")) }
+    "observability-check" {
+        $local = Join-Path (Get-Location) "deployments\local"
+        Invoke-Native docker @("run", "--rm", "--entrypoint", "/bin/promtool", "-v", "$local\prometheus-rules:/etc/prometheus/rules:ro", "-v", "$local\prometheus.yml:/etc/prometheus/prometheus.yml:ro", $PrometheusImage, "check", "config", "/etc/prometheus/prometheus.yml")
+        Invoke-Native docker @("run", "--rm", "--entrypoint", "/bin/promtool", "-v", "$local`:/d:ro", $PrometheusImage, "test", "rules", "/d/prometheus-tests/slo_test.yml")
+        Invoke-Native docker @("run", "--rm", "-v", "$local\otel-collector.yaml:/etc/otelcol/config.yaml:ro", $OtelcolImage, "validate", "--config", "/etc/otelcol/config.yaml")
+    }
     "image-scan" {
         & $PSCommandPath images
         $dist = Join-Path (Get-Location) "dist"

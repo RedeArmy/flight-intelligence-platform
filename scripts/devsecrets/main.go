@@ -24,6 +24,7 @@ var secretNames = []string{
 	"postgres_readonly_password",
 	"api_key_pepper",
 	"redis_password",
+	"grafana_admin_password",
 }
 
 const secretBytes = 24 // 48 hex characters
