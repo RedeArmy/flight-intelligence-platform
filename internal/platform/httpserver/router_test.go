@@ -183,7 +183,7 @@ func TestCredentialsNeverReachTheLogs(t *testing.T) {
 
 func TestRoutesWithoutAPolicyAreRefused(t *testing.T) {
 	tl := newTestLog(t)
-	r := newBaseRouter(tl.Logger)
+	r := newBaseRouter(tl.Logger, nil)
 	called := false
 	r.With(enforcePolicy(guard{auth: &fakeAuth{principal: Principal{ClientID: "c", Role: RoleAdmin}}})).
 		Get("/v1/unlisted", func(http.ResponseWriter, *http.Request) { called = true })

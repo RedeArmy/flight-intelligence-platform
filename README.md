@@ -51,6 +51,9 @@ The runtime role (`fip_app`) cannot change the schema or alter the audit log; se
 ### Rate limiting
 Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
 
+### Observability
+Logs carry `request_id`, `trace_id` and `span_id`. To export traces and metrics set `TELEMETRY_OTLP_ENDPOINT` (for example `http://127.0.0.1:4318`) and run the collector from `deployments/local/otel-collector.yaml`; what is emitted is listed in [telemetry](docs/operations/telemetry.md) ([ADR-033](docs/adr/ADR-033-telemetry-implementation.md)).
+
 ### API keys
 Protected routes (such as `GET /v1/whoami`) need `Authorization: Bearer <key>`. Keys are issued by the operator tool, which connects as `fip_admin` and prints the token once ([ADR-027](docs/adr/ADR-027-api-key-format-hashing-rotation.md)):
 ```bash

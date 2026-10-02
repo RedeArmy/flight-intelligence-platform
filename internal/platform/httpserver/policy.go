@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/telemetry"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
 )
@@ -91,7 +92,15 @@ type guard struct {
 	limiter RateLimiter
 	limits  Limits
 	auditor Auditor
+	metrics *telemetry.Metrics // nil records nothing
 }
+
+// Names of the limits, used as the "limit" label of rate_limited_total.
+const (
+	limitIP          = "ip"
+	limitAuthFailure = "auth_failure"
+	limitClient      = "client"
+)
 
 // enforcePolicy applies the route policy table. It is deny-by-default and stores the principal in the context.
 func enforcePolicy(g guard) func(http.Handler) http.Handler {
@@ -121,16 +130,16 @@ func enforcePolicy(g guard) func(http.Handler) http.Handler {
 func (g guard) protect(r *http.Request, policy routePolicy) (Principal, error) {
 	ctx := r.Context()
 	ip := remoteHost(r.RemoteAddr)
-	if err := g.take(ctx, "ip:"+ip, g.limits.IP, 1); err != nil {
+	if err := g.take(ctx, limitIP, "ip:"+ip, g.limits.IP, 1); err != nil {
 		return Principal{}, err
 	}
-	if err := g.take(ctx, "authfail:"+ip, g.limits.AuthFailure, 0); err != nil {
+	if err := g.take(ctx, limitAuthFailure, "authfail:"+ip, g.limits.AuthFailure, 0); err != nil {
 		return Principal{}, err
 	}
 	principal, err := g.auth.Authenticate(r)
 	if err != nil {
 		if sharederrors.KindOf(err) == sharederrors.KindUnauthenticated {
-			_ = g.take(ctx, "authfail:"+ip, g.limits.AuthFailure, 1) // charge the failure; the 401 is returned either way
+			g.chargeFailure(ctx, "authfail:"+ip)
 		}
 		return Principal{}, err
 	}
@@ -138,7 +147,7 @@ func (g guard) protect(r *http.Request, policy routePolicy) (Principal, error) {
 		g.auditDenied(r, principal)
 		return Principal{}, ErrForbidden
 	}
-	if err := g.take(ctx, "client:"+principal.ClientID+":"+policy.class(), g.limits.Client, 1); err != nil {
+	if err := g.take(ctx, limitClient, "client:"+principal.ClientID+":"+policy.class(), g.limits.Client, 1); err != nil {
 		return Principal{}, err
 	}
 	return principal, nil
@@ -147,7 +156,7 @@ func (g guard) protect(r *http.Request, policy routePolicy) (Principal, error) {
 // take charges a bucket and turns a denial into a rate-limited error. A limiter failure is logged and lets the
 // request through: the Fallback limiter already absorbs Redis outages, so an error here is a bug, and refusing all
 // traffic because of it would be worse than a missed limit.
-func (g guard) take(ctx context.Context, key string, rule ratelimit.Rule, cost int) error {
+func (g guard) take(ctx context.Context, limit, key string, rule ratelimit.Rule, cost int) error {
 	if g.limiter == nil || !rule.Valid() {
 		return nil
 	}
@@ -159,7 +168,20 @@ func (g guard) take(ctx context.Context, key string, rule ratelimit.Rule, cost i
 	if d.Allowed {
 		return nil
 	}
+	g.metrics.RateLimited(ctx, limit)
 	return newRateLimitError(d)
+}
+
+// chargeFailure takes one token from the failed-authentication bucket. Whether a token was available does not matter:
+// the caller already failed and gets its 401 either way, and the refusal of later attempts is counted when they are
+// refused, not here. A limiter error is logged like in take.
+func (g guard) chargeFailure(ctx context.Context, key string) {
+	if g.limiter == nil || !g.limits.AuthFailure.Valid() {
+		return
+	}
+	if _, err := g.limiter.Allow(ctx, key, g.limits.AuthFailure, 1); err != nil {
+		loggerFrom(ctx).ErrorContext(ctx, "rate limiter failed", "error", err)
+	}
 }
 
 func (g guard) auditDenied(r *http.Request, p Principal) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/secret"
 )
@@ -37,6 +38,10 @@ type Config struct {
 	ConnectTimeout   time.Duration
 	StatementTimeout time.Duration // 0 disables the server-side statement timeout
 	MaxConnLifetime  time.Duration
+
+	// Tracing, when set, records one client span per statement that runs under a traced request (verb only, never
+	// SQL text, arguments or error messages). Nil disables it.
+	Tracing trace.TracerProvider
 }
 
 // Validate reports the first problem with c.
@@ -60,6 +65,9 @@ func (c Config) Validate() error {
 
 // poolConfig builds the pgx pool configuration. Every connection setting is explicit: pgx's own defaults and the
 // PG* environment variables are overwritten, so the process environment can never redirect or weaken a connection.
+// tracerName is the instrumentation scope of database spans.
+const tracerName = "github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
+
 func (c Config) poolConfig() (*pgxpool.Config, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -79,6 +87,9 @@ func (c Config) poolConfig() (*pgxpool.Config, error) {
 		cc.TLSConfig = &tls.Config{ServerName: c.Host, MinVersion: tls.VersionTLS12}
 	}
 	cc.RuntimeParams = c.runtimeParams()
+	if c.Tracing != nil {
+		cc.Tracer = &queryTracer{tracer: c.Tracing.Tracer(tracerName)}
+	}
 
 	pc.MaxConns = clampInt32(c.MaxConns)
 	pc.MinConns = clampInt32(c.MinConns)

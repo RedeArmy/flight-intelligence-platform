@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,14 @@ var testPepper = secret.Secret(strings.Repeat("test-pepper-", 4))
 // startAPI starts the API against a migrated test database as the runtime role and returns its public base URL.
 // The API stops when the test ends.
 func startAPI(t *testing.T, env *dbtest.Env, extra map[string]string) string {
+	t.Helper()
+	base, _ := startStoppableAPI(t, env, extra)
+	return base
+}
+
+// startStoppableAPI is startAPI that also returns a stop function, for tests that need the API to shut down (and
+// flush its telemetry) before they look at the result. stop is idempotent and also runs when the test ends.
+func startStoppableAPI(t *testing.T, env *dbtest.Env, extra map[string]string) (base string, stop func()) {
 	t.Helper()
 	dir := t.TempDir()
 	for name, value := range map[string]string{
@@ -55,27 +64,31 @@ func startAPI(t *testing.T, env *dbtest.Env, extra map[string]string) string {
 	go func() {
 		res <- run(ctx, runOptions{Lookup: lookupOf(cfg), Stdout: io.Discard, OnListening: func(p, _ net.Addr) { addrs <- p }})
 	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-res:
-			if err != nil {
-				t.Errorf("shutdown: %v", err)
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case err := <-res:
+				if err != nil {
+					t.Errorf("shutdown: %v", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Error("api did not stop")
 			}
-		case <-time.After(10 * time.Second):
-			t.Error("api did not stop")
-		}
-	})
+		})
+	}
+	t.Cleanup(stop)
 
 	select {
 	case public := <-addrs:
-		return "http://" + public.String()
+		return "http://" + public.String(), stop
 	case err := <-res:
 		t.Fatalf("api ended early: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("api did not start")
 	}
-	return ""
+	return "", stop
 }
 
 // TestReadyzWithARealDatabase starts the API against a real, migrated PostgreSQL as the runtime role and checks that
