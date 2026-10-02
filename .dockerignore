@@ -1,0 +1,35 @@
+# What is sent to the Docker build. Keep secrets and local state out of the build context: anything in it can end up in
+# an image layer.
+
+# Secrets and local configuration (SR-18)
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials*.json
+
+# Version control and tooling
+.git
+.github
+.githooks
+.claude
+.idea
+.vscode
+
+# Build outputs and caches
+bin/
+coverage.out
+coverage.raw
+*.exe
+*.test
+
+# Not needed to build the binaries
+docs/
+terraform/
+test/
+deployments/
