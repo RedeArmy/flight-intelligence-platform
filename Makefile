@@ -29,11 +29,11 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
-	@echo Planned (added by later E1 slices): dev restore-drill
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
+	@echo Planned (added by later E1 slices): worker image and service
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -84,6 +84,27 @@ run: ## Run the API locally (reads ./.env when APP_ENV is local or test)
 
 local-secrets: ## Generate local dev secrets into ./secrets (git-ignored); never overwrites existing ones
 	go run ./scripts/devsecrets
+
+dev: local-secrets ## Start the local infrastructure: PostgreSQL, Redis, collector, Jaeger and Prometheus
+	$(COMPOSE) up -d --wait
+
+dev-down: ## Stop the local infrastructure and the app containers (data volumes are kept)
+	$(COMPOSE) --profile app down
+
+stack: local-secrets ## Build and start everything: the infrastructure, the migrations and the API in containers
+	$(COMPOSE) --profile app up -d --build --wait
+
+images: ## Build the container images (api and tools)
+	docker build --target api -t fip-api:local .
+	docker build --target tools -t fip-tools:local .
+
+keyctl: ## Run the operator tool in a container, for example: make keyctl ARGS="key list"
+	$(COMPOSE) --profile tools run --rm keyctl $(ARGS)
+
+# Dumps the running local database, restores it into a scratch database, compares tables, rows and migration version,
+# prints the time of each step and removes what it created (ADR-023). Needs make dev.
+restore-drill: ## Prove that the local database can be restored from a backup
+	go run ./scripts/restoredrill
 
 db-up: ## Start the local PostgreSQL (needs make local-secrets first)
 	$(COMPOSE) up -d --wait postgres

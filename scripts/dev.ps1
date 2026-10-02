@@ -2,8 +2,11 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
-    [string]$Target = "help"
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [string]$Target = "help",
+    # Extra arguments for targets that take some, for example: .\scripts\dev.ps1 keyctl key list
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Rest = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,7 +65,7 @@ function Scan-Secrets {
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -76,6 +79,15 @@ switch ($Target) {
     }
     "run" { Invoke-Native go @("run", "./cmd/api") }
     "local-secrets" { Invoke-Native go @("run", "./scripts/devsecrets") }
+    "dev" { Invoke-Native go @("run", "./scripts/devsecrets"); Invoke-Native docker (Compose @("up", "-d", "--wait")) }
+    "dev-down" { Invoke-Native docker (Compose @("--profile", "app", "down")) }
+    "stack" { Invoke-Native go @("run", "./scripts/devsecrets"); Invoke-Native docker (Compose @("--profile", "app", "up", "-d", "--build", "--wait")) }
+    "images" {
+        Invoke-Native docker @("build", "--target", "api", "-t", "fip-api:local", ".")
+        Invoke-Native docker @("build", "--target", "tools", "-t", "fip-tools:local", ".")
+    }
+    "keyctl" { Invoke-Native docker (Compose (@("--profile", "tools", "run", "--rm", "keyctl") + $Rest)) }
+    "restore-drill" { Invoke-Native go @("run", "./scripts/restoredrill") }
     "db-up" { Invoke-Native docker (Compose @("up", "-d", "--wait", "postgres")) }
     "db-down" { Invoke-Native docker (Compose @("stop", "postgres")) }
     "test-db" { Invoke-Native docker (Compose @("--profile", "test", "up", "-d", "--wait", "postgres-test", "redis-test")) }
