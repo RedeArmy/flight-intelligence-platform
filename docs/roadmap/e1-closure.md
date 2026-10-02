@@ -73,6 +73,11 @@ Worth keeping as evidence that the checks do real work, and as a reminder of whe
 - Running the SLO rules against the live stack found that the error ratio had no value when there were no errors at all, the healthy case; the rule tests did not cover it until a test for the value was added.
 - Executing the runbooks found that a real restore must keep the table owners (the drill's `--no-owner` would break later migrations), and that a rotated pepper leaves old keys `active`.
 - A unit test found a nil dereference when closing a partly built service.
+- Validating the merged `main` in a fresh clone found that `make stack` could fail on the first start from an empty volume (the database
+  health check passed over a Unix socket while PostgreSQL was still initialising and the migration job connected over TCP), and that a Redis
+  integration test failed under load because the limiter's 100 ms Redis timeout is short on a busy machine. Both are fixed
+  (ADR-034 amendment; the test sets its own timeout), each with evidence that the fix works: the test went from failing 15 of 15 runs under
+  CPU load to passing 15 of 15.
 - The metrics test found a rate-limit counter that skipped the refusals that matter.
 - Mistakes of mine in the process, caught by guards and tests: counts of staged files, a temporary directory created in the wrong place on Windows, and an unfair first verification of the CI gate logic (no `jq` installed).
 
