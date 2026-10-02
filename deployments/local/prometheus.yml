@@ -4,6 +4,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# SLO recording rules and alerts (deployments/local/prometheus-rules, tested by `make observability-check`). There is no
+# Alertmanager in the local stack: firing alerts are visible in the Prometheus UI and in Grafana.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   - job_name: otel-collector
     # The collector keeps metrics for a few minutes after the last report, so a stopped API fades out instead of vanishing.

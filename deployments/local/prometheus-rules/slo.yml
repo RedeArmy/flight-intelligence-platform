@@ -1,0 +1,106 @@
+# Service level objectives and their alerts for the local stack (docs/operations/reliability-and-observability.md,
+# docs/operations/telemetry.md). All numbers are hypotheses to validate by measurement (Constitution section 47).
+#
+# SLI of API availability: good requests (2xx and 3xx) over valid requests (2xx, 3xx and 5xx). Client errors (4xx) are the
+# caller's, so they count for neither side; the liveness and readiness probes are not user traffic, so they are excluded.
+# Target 99.9%, which leaves an error budget of 0.1%. With traffic and no failures the ratio is 0 (the numerator falls back
+# to vector(0)); with no traffic at all it has no value, which is "no data", not "perfect".
+#
+# The alerts burn on the error ratio over two windows at once (multi-window, multi-burn-rate): a short window to react
+# quickly and a long one so a brief spike does not page. 14.4x is the rate that spends 2% of a 30 day budget in one hour.
+#
+# There is no Alertmanager in the local stack: alerts are visible in the Prometheus UI (Alerts) and in Grafana. Every
+# page-severity alert links its runbook.
+groups:
+  - name: slo-api-availability
+    interval: 30s
+    rules:
+      - record: slo:api_error_ratio:rate5m
+        expr: |
+          (sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"5.."}[5m])) or vector(0))
+          /
+          sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"2..|3..|5.."}[5m]))
+      - record: slo:api_error_ratio:rate30m
+        expr: |
+          (sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"5.."}[30m])) or vector(0))
+          /
+          sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"2..|3..|5.."}[30m]))
+      - record: slo:api_error_ratio:rate1h
+        expr: |
+          (sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"5.."}[1h])) or vector(0))
+          /
+          sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"2..|3..|5.."}[1h]))
+      - record: slo:api_error_ratio:rate6h
+        expr: |
+          (sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"5.."}[6h])) or vector(0))
+          /
+          sum(rate(http_server_requests_total{job="api", http_route!~"/healthz|/readyz", http_response_status_code=~"2..|3..|5.."}[6h]))
+
+  - name: slo-api-alerts
+    rules:
+      - alert: ApiAvailabilityFastBurn
+        expr: slo:api_error_ratio:rate5m > (14.4 * 0.001) and slo:api_error_ratio:rate1h > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: The API is spending its error budget 14.4 times too fast
+          description: More than 1.44% of valid requests failed with 5xx over both the last 5 minutes and the last hour, against a 99.9% target.
+          runbook: docs/operations/runbooks/rollback.md
+      - alert: ApiAvailabilitySlowBurn
+        expr: slo:api_error_ratio:rate30m > (6 * 0.001) and slo:api_error_ratio:rate6h > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The API is steadily spending its error budget 6 times too fast
+          description: More than 0.6% of valid requests failed with 5xx over both the last 30 minutes and the last 6 hours.
+          runbook: docs/operations/runbooks/rollback.md
+
+  - name: platform-alerts
+    rules:
+      - alert: ServiceNotReady
+        expr: readiness_state == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} has been not ready for 2 minutes"
+          description: A critical dependency check (PostgreSQL) is failing, so the service reports not_ready (readiness_state 0).
+          runbook: docs/operations/runbooks/rollback.md
+      - alert: ServiceDegraded
+        expr: readiness_state == 1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.job }} has been degraded for 10 minutes"
+          description: An optional dependency (Redis) is failing; rate limits apply per instance only (ADR-004, ADR-032).
+          runbook: docs/operations/telemetry.md
+      - alert: DatabasePoolSaturated
+        expr: db_pool_acquired_connections / db_pool_max_connections > 0.9
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.job }} is using more than 90% of its database connections"
+          description: Requests may start waiting for a connection. Check slow queries and the pool size (POSTGRES_MAX_CONNS).
+          runbook: docs/operations/telemetry.md
+      - alert: DatabasePoolWaiting
+        expr: rate(db_pool_empty_acquires_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.job }} requests are waiting for a database connection"
+          description: Acquisitions found every connection busy for 5 minutes in a row.
+          runbook: docs/operations/telemetry.md
+      - alert: AuthenticationFailuresHigh
+        expr: sum(rate(auth_failures_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: More than one failed authentication per second for 5 minutes
+          description: Possible key guessing or a client with a bad key. Look at the reason_class split and the API log (key_prefix, reason).
+          runbook: docs/operations/runbooks/key-rotation.md

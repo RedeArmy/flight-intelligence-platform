@@ -14,6 +14,8 @@ OAPI_CODEGEN_VERSION  := v2.8.0
 # Versions: Trivy 0.75.0, Syft 1.54.0, hadolint 2.15.1. Update the tag and the digest together.
 TRIVY_IMAGE           := aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
 SYFT_IMAGE            := anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c
+PROMETHEUS_IMAGE      := prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+OTELCOL_IMAGE         := otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
 HADOLINT_IMAGE        := hadolint/hadolint:v2.15.1-debian@sha256:9a3944b7fddcb947d1ffd90829ac1a6e5c30479223358f249d8b96c7d0019e27
 RACE_IMAGE            := golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190
 
@@ -37,10 +39,10 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: image-tars help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
+.PHONY: image-tars help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check observability-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check observability-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -112,6 +114,15 @@ dockerfile-lint: ## Lint the Dockerfile with hadolint
 
 compose-check: ## Validate the Compose file with every profile enabled
 	$(COMPOSE) --profile app --profile tools --profile test config -q
+
+# Validates the observability configuration and proves the SLO alerts: promtool checks the rules and the Prometheus
+# configuration and runs the rule tests (synthetic traffic in, expected alerts out), and the collector validates its own
+# configuration. A change to a rule or a threshold fails here, not at 3 a.m. (docs/operations/telemetry.md).
+observability-check: export MSYS_NO_PATHCONV := 1
+observability-check: ## Validate the Prometheus and collector configuration and unit-test the SLO alert rules
+	docker run --rm --entrypoint /bin/promtool -v "$(CURDIR)/deployments/local/prometheus-rules:/etc/prometheus/rules:ro" -v "$(CURDIR)/deployments/local/prometheus.yml:/etc/prometheus/prometheus.yml:ro" $(PROMETHEUS_IMAGE) check config /etc/prometheus/prometheus.yml
+	docker run --rm --entrypoint /bin/promtool -v "$(CURDIR)/deployments/local:/d:ro" $(PROMETHEUS_IMAGE) test rules /d/prometheus-tests/slo_test.yml
+	docker run --rm -v "$(CURDIR)/deployments/local/otel-collector.yaml:/etc/otelcol/config.yaml:ro" $(OTELCOL_IMAGE) validate --config /etc/otelcol/config.yaml
 
 # Each image is written to dist/ as a tar and scanned from there, so the scan needs no access to the Docker socket and
 # runs the same on every machine. It fails on HIGH and CRITICAL vulnerabilities that have a fix; vulnerabilities

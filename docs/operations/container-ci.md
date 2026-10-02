@@ -8,6 +8,7 @@ digest in the `Makefile` (`TRIVY_IMAGE`, `SYFT_IMAGE`, `HADOLINT_IMAGE`) and mir
 |--------|--------------|------------|
 | `make dockerfile-lint` | Lints the `Dockerfile` with hadolint | any finding at warning level or above |
 | `make compose-check` | Validates `deployments/local/docker-compose.yml` with every profile enabled | the file is invalid |
+| `make observability-check` | Validates the Prometheus and collector configuration and runs the unit tests of the SLO alert rules (promtool) | a rule, a configuration or a test is wrong |
 | `make image-scan` | Builds the images, saves each one to `dist/`, scans it with Trivy | an operating-system package or a Go module has a **HIGH or CRITICAL vulnerability that has a fix** |
 | `make sbom` | Writes an SPDX 2.3 software bill of materials per image to `dist/` with Syft | the tool fails; it checks nothing else |
 

@@ -40,7 +40,7 @@ curl -i http://localhost:8080/healthz
 
 ### Local stack (Docker Compose)
 ```bash
-make dev                  # infrastructure: PostgreSQL, Redis, collector, Jaeger (16686), Prometheus (9090)
+make dev                  # infrastructure: PostgreSQL, Redis, collector, Jaeger (16686), Prometheus (9090), Grafana (3000)
 make stack                # plus the migrations, the API (http://127.0.0.1:8080) and the worker in containers
 make keyctl ARGS="client create -name my-app -role DEVELOPER"   # operator tool in a container
 make restore-drill        # prove the database can be restored from a backup
@@ -61,6 +61,10 @@ The runtime role (`fip_app`) cannot change the schema or alter the audit log; se
 ### Rate limiting
 Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
 
+### Status of the foundation (E1)
+E1 is implemented and reviewed: see the [closure review](docs/roadmap/e1-closure.md) for the exit criteria, the Definition of Done, the
+deferred items and the proposed inputs for E2. Security baseline: [ASVS 5.0.0 coverage](docs/security/asvs-coverage.md) ([ADR-036](docs/adr/ADR-036-owasp-asvs-adoption.md)).
+
 ### Runbooks
 Procedures for operating the platform, each run and dated on the local stack: [rollback](docs/operations/runbooks/rollback.md),
 [key rotation](docs/operations/runbooks/key-rotation.md), [database backup and restore](docs/operations/runbooks/db-restore.md) and
@@ -72,6 +76,7 @@ a skeleton for [disabling a provider](docs/operations/runbooks/provider-disable.
 make dockerfile-lint compose-check   # Dockerfile (hadolint) and Compose validation
 make image-scan                      # build the images and scan them for HIGH/CRITICAL vulnerabilities with a fix (Trivy)
 make sbom                            # SPDX software bill of materials per image in dist/ (Syft)
+make observability-check            # promtool: Prometheus and collector configuration, and the tests of the SLO alerts
 make test-race-docker                # unit tests with the race detector in a Linux container
 ```
 The same checks run in CI ([container-ci](docs/operations/container-ci.md)).

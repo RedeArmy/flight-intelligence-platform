@@ -1,0 +1,180 @@
+# Unit tests of the SLO rules (run with `make observability-check`): synthetic request counters go in, and the test says
+# which alerts must and must not fire. An alert nobody has ever seen fire is a guess; these tests make it a fact.
+rule_files:
+  - ../prometheus-rules/slo.yml
+
+evaluation_interval: 30s
+
+tests:
+  # Healthy traffic: nothing fires, and the error ratio is a real 0 (not "no data"), so dashboards show 100% availability.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="200"}'
+        values: '0+10x240'
+    promql_expr_test:
+      - expr: slo:api_error_ratio:rate5m
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:api_error_ratio:rate5m'
+            value: 0
+      - expr: slo:api_error_ratio:rate6h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:api_error_ratio:rate6h'
+            value: 0
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: ApiAvailabilityFastBurn
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: ApiAvailabilitySlowBurn
+        exp_alerts: []
+
+  # No traffic at all: there is no ratio, which must stay "no data" rather than become a misleading 0.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/readyz", http_response_status_code="200"}'
+        values: '0+10x240'
+    promql_expr_test:
+      - expr: slo:api_error_ratio:rate5m
+        eval_time: 2h
+        exp_samples: []
+
+  # 20% of valid requests fail for 90 minutes: the fast burn pages.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="200"}'
+        values: '0+8x180'
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="500"}'
+        values: '0+2x180'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ApiAvailabilityFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: The API is spending its error budget 14.4 times too fast
+              description: More than 1.44% of valid requests failed with 5xx over both the last 5 minutes and the last hour, against a 99.9% target.
+              runbook: docs/operations/runbooks/rollback.md
+
+  # 1% of valid requests fail for 7 hours: above the slow-burn line (0.6%) and below the fast-burn line (1.44%), so only
+  # the ticket fires.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="200"}'
+        values: '0+99x840'
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="500"}'
+        values: '0+1x840'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: ApiAvailabilitySlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The API is steadily spending its error budget 6 times too fast
+              description: More than 0.6% of valid requests failed with 5xx over both the last 30 minutes and the last 6 hours.
+              runbook: docs/operations/runbooks/rollback.md
+      - eval_time: 7h
+        alertname: ApiAvailabilityFastBurn
+        exp_alerts: []
+
+  # Probes are not user traffic: a readiness endpoint answering 503 must not burn the availability budget.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="200"}'
+        values: '0+10x240'
+      - series: 'http_server_requests_total{job="api", http_route="/readyz", http_response_status_code="503"}'
+        values: '0+50x240'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: ApiAvailabilityFastBurn
+        exp_alerts: []
+
+  # Client errors are the caller's: a flood of 401 and 429 must not burn the budget either.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="200"}'
+        values: '0+10x240'
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="401"}'
+        values: '0+40x240'
+      - series: 'http_server_requests_total{job="api", http_route="/v1/whoami", http_response_status_code="429"}'
+        values: '0+40x240'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: ApiAvailabilityFastBurn
+        exp_alerts: []
+
+  # The worker is not ready for 10 minutes: page. Degraded (value 1) is only a ticket, and only after 10 minutes.
+  - interval: 30s
+    input_series:
+      - series: 'readiness_state{job="worker"}'
+        values: '2x10 0x20'
+      - series: 'readiness_state{job="api"}'
+        values: '2x10 1x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: worker
+            exp_annotations:
+              summary: worker has been not ready for 2 minutes
+              description: A critical dependency check (PostgreSQL) is failing, so the service reports not_ready (readiness_state 0).
+              runbook: docs/operations/runbooks/rollback.md
+      - eval_time: 8m
+        alertname: ServiceDegraded
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ServiceDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+            exp_annotations:
+              summary: api has been degraded for 10 minutes
+              description: An optional dependency (Redis) is failing; rate limits apply per instance only (ADR-004, ADR-032).
+              runbook: docs/operations/telemetry.md
+
+  # A saturated pool fires; a half-used pool does not.
+  - interval: 30s
+    input_series:
+      - series: 'db_pool_acquired_connections{job="api"}'
+        values: '10x40'
+      - series: 'db_pool_max_connections{job="api"}'
+        values: '10x40'
+      - series: 'db_pool_acquired_connections{job="worker"}'
+        values: '5x40'
+      - series: 'db_pool_max_connections{job="worker"}'
+        values: '10x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DatabasePoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+            exp_annotations:
+              summary: api is using more than 90% of its database connections
+              description: Requests may start waiting for a connection. Check slow queries and the pool size (POSTGRES_MAX_CONNS).
+              runbook: docs/operations/telemetry.md
+
+  # More than one failed authentication per second, sustained: ticket. A trickle does not.
+  - interval: 30s
+    input_series:
+      - series: 'auth_failures_total{job="api", reason_class="invalid_credentials"}'
+        values: '0+60x40'
+      - series: 'auth_failures_total{job="api", reason_class="malformed"}'
+        values: '0+3x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: AuthenticationFailuresHigh
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: More than one failed authentication per second for 5 minutes
+              description: Possible key guessing or a client with a bad key. Look at the reason_class split and the API log (key_prefix, reason).
+              runbook: docs/operations/runbooks/key-rotation.md

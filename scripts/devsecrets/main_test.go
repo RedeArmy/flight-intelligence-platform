@@ -85,7 +85,7 @@ func TestSecretNamesMatchComposeAndInitScript(t *testing.T) {
 	compose := read("../../deployments/local/docker-compose.yml")
 	init := read("../../deployments/local/postgres/20-role-passwords.sql")
 	// Secrets that are not PostgreSQL role passwords are declared in Compose but not read by the database init script.
-	notDatabase := map[string]bool{"postgres_superuser_password": true, "api_key_pepper": true, "redis_password": true}
+	notDatabase := map[string]bool{"postgres_superuser_password": true, "api_key_pepper": true, "redis_password": true, "grafana_admin_password": true}
 	for _, name := range secretNames {
 		if !strings.Contains(compose, "secrets/"+name) {
 			t.Errorf("%s is generated but not declared in docker-compose.yml", name)

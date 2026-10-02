@@ -10,6 +10,7 @@
 #
 #   Jaeger UI    http://127.0.0.1:16686
 #   Prometheus   http://127.0.0.1:9090
+#   Grafana      http://127.0.0.1:3000          (user admin, password in secrets/grafana_admin_password)
 #   API          http://127.0.0.1:8080          (profile app)
 name: fip-local
 
@@ -111,11 +112,50 @@ services:
       - --storage.tsdb.retention.time=7d
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-rules:/etc/prometheus/rules:ro
       - promdata:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:
       - otel-collector
+
+  # Dashboards. Stateless: the data source and the dashboards are provisioned from files and the admin password comes from a
+  # secret, so nothing lives in the container (the state directory is a tmpfs). Not reachable except from this machine.
+  grafana:
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp
+      - /var/lib/grafana:uid=472,gid=0,mode=0775
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      # Nothing leaves this machine: no usage reports, no update checks, no plugins downloaded at start.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      - prometheus
 
   # One-off job: applies the migrations as the schema-owning role, then exits. Never runs inside the API (ADR-031).
   migrate:
@@ -254,6 +294,8 @@ secrets:
     file: ../../secrets/redis_password
   api_key_pepper:
     file: ../../secrets/api_key_pepper
+  grafana_admin_password:
+    file: ../../secrets/grafana_admin_password
 
 volumes:
   pgdata:

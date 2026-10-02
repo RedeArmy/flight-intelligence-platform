@@ -25,6 +25,14 @@ ADR-019 chooses OpenTelemetry with OTLP to a collector and leaves the backend op
 
 **Own HTTP and pgx instrumentation.** The HTTP middleware and the pgx tracer are about 100 lines each, instead of `otelhttp` and a third-party pgx tracer. The reasons are the two rules above: the span is named after the route only after routing, and the trace context is untrusted. A library would have needed configuration around both and gives less control over what is recorded.
 
+## Amendment (E1 closure, 2026-10-02): SLO rules and the dashboard
+The availability SLO is computed in Prometheus from the request counter, with recording rules and multi-window, multi-burn-rate
+alerts (a fast burn that pages, a slow burn that opens a ticket) in `deployments/local/prometheus-rules/slo.yml`, and the rules are
+unit-tested with promtool (`make observability-check`). Probes and client errors are excluded from the SLI. A Grafana with one
+provisioned dashboard shows them (ADR-034). While writing the first rule, verification on the live stack found that the ratio had no
+value when there were no failures at all, which is the healthy case; the numerator now falls back to zero and a test asserts it. There is
+still no Alertmanager: alerts are visible, not delivered, until a delivery channel is chosen.
+
 ## Alternatives considered
 - OTLP over gRPC: as the design said; adds channel management, and does not shrink the dependency graph (see above).
 - A `/metrics` endpoint on the operator listener: a second path and another route to protect (SR-21); one path through the collector is enough.

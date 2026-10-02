@@ -29,6 +29,13 @@ Slice S6 of E1 packages the services and completes the local stack (ADR-025 amen
 
 **Restore drill (ADR-023).** `make restore-drill` dumps the running local database with `pg_dump`, restores it into a scratch database, compares every table's row count and the migration version, prints the time of each step, and removes the scratch database and the dump even when it fails. It runs inside the container with the superuser password read from the Docker secret, so the password never appears on a host command line. A restore that differs from the source, or a scratch database that cannot be removed, makes it fail.
 
+## Amendment (E1 closure, 2026-10-02): Grafana
+The stack gains a `grafana` service for the SLO dashboard (ADR-033), chosen over leaving the viewers at Jaeger and Prometheus because the
+backlog asks for SLO dashboards in E1 (X-3). It is stateless and hardened like the other containers: data source and dashboards provisioned
+from read-only files (edits are refused), the admin password from a Docker secret, a read-only root filesystem with a `tmpfs` for its state
+directory, no capabilities, the port on `127.0.0.1` only, and no outbound traffic (usage reports, update checks and plugin downloads are
+off). The image is pinned by tag and digest like the other Compose images.
+
 ## Alternatives considered
 - One image with every binary: simpler to publish, but the API image would contain tools that issue keys and change the schema.
 - A shell-based health check (`wget`, `curl`): needs a shell and extra binaries in the runtime image; the self-check keeps it empty.
