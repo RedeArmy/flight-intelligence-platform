@@ -49,6 +49,12 @@ processors:
   batch: {}
 
 exporters:
+  # Trace viewer of the local stack (the `jaeger` service in Compose, OTLP/gRPC between containers).
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true # inside the Compose network only
+
   # Prints a one-line summary of what arrives. Raise the verbosity to `detailed` to see every attribute.
   debug:
     verbosity: basic
@@ -66,7 +72,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling, batch]
-      exporters: [debug]
+      exporters: [debug, otlp/jaeger]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]

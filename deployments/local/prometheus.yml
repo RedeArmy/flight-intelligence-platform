@@ -1,0 +1,12 @@
+# Prometheus for the local stack (ADR-033). It scrapes the OpenTelemetry collector, which exposes the metrics the API
+# sends over OTLP on port 8889 (see otel-collector.yaml); the API itself has no /metrics endpoint.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    # The collector keeps metrics for a few minutes after the last report, so a stopped API fades out instead of vanishing.
+    honor_labels: true
+    static_configs:
+      - targets: ["otel-collector:8889"]
