@@ -35,3 +35,20 @@ edited, renamed or deleted (a Go command, `scripts/migrationcheck`, run from the
 CI), that the policy tests pass, and, against the digest-pinned PostgreSQL image, that each migration applies and reverts
 on its own, that `up-down-up` leaves the same schema without residue, and that the resulting schema and privileges equal
 a committed snapshot. See `docs/operations/migrations-ci.md`.
+
+## Decision note (E1 S8, 2026-10-02): container checks, dependency review and CodeQL
+Three jobs join `ci-gate`, and the caches are enabled.
+- **`images`** lints the Dockerfile (hadolint), validates Compose, builds the three images, scans each with Trivy and fails on
+  HIGH or CRITICAL vulnerabilities that have a fix, and uploads an SPDX SBOM per image (Syft) as an artifact. Every step is a
+  `make` target and every tool a container image pinned by tag and digest, so local runs and CI agree. The first scan found a
+  HIGH vulnerability in `google.golang.org/grpc` (an indirect dependency of the OpenTelemetry exporters) that `govulncheck`
+  did not report because the vulnerable code is not called; it was fixed by updating the module.
+- **`dependency-review`** blocks pull requests that add or update a dependency with a HIGH or CRITICAL vulnerability. It runs on
+  pull requests only.
+- **`codeql`** adds CodeQL (`security-extended`) next to gosec and SonarCloud, and is skipped for fork pull requests because it
+  needs `security-events: write`.
+- `ci-gate` treats `sonar`, `dependency-review` and `codeql` as optional only in the sense of *skipped*: a failure or a
+  cancellation of any job still blocks the merge, and a skipped required job (`images` and the others) blocks it too.
+- Third-party actions are pinned by commit SHA (CodeQL's release tag is annotated, so the commit behind the tag was pinned,
+  not the tag object). `setup-go` caches modules and builds keyed on `go.sum`.
+See `docs/operations/container-ci.md`.

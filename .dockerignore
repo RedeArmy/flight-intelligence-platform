@@ -33,3 +33,5 @@ docs/
 terraform/
 test/
 deployments/
+
+dist/

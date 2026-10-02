@@ -10,6 +10,11 @@ ACTIONLINT_VERSION    := v1.7.12
 OAPI_CODEGEN_VERSION  := v2.8.0
 # Linux image with a C compiler, for the race detector on machines that have none (Windows). Same Go as go.mod (ADR-030),
 # pinned by digest; update it together with the Go version.
+# Container tooling, run as pinned images so local runs and CI use the same versions (docs/operations/container-ci.md).
+# Versions: Trivy 0.75.0, Syft 1.54.0, hadolint 2.15.1. Update the tag and the digest together.
+TRIVY_IMAGE           := aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+SYFT_IMAGE            := anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c
+HADOLINT_IMAGE        := hadolint/hadolint:v2.15.1-debian@sha256:9a3944b7fddcb947d1ffd90829ac1a6e5c30479223358f249d8b96c7d0019e27
 RACE_IMAGE            := golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190
 
 export GOTOOLCHAIN := local
@@ -32,10 +37,10 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
+.PHONY: image-tars help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -100,6 +105,33 @@ images: ## Build the container images (api, worker and tools)
 	docker build --target api -t fip-api:local .
 	docker build --target worker -t fip-worker:local .
 	docker build --target tools -t fip-tools:local .
+
+dockerfile-lint: export MSYS_NO_PATHCONV := 1
+dockerfile-lint: ## Lint the Dockerfile with hadolint
+	docker run --rm -i $(HADOLINT_IMAGE) hadolint --failure-threshold warning - < Dockerfile
+
+compose-check: ## Validate the Compose file with every profile enabled
+	$(COMPOSE) --profile app --profile tools --profile test config -q
+
+# Each image is written to dist/ as a tar and scanned from there, so the scan needs no access to the Docker socket and
+# runs the same on every machine. It fails on HIGH and CRITICAL vulnerabilities that have a fix; vulnerabilities
+# without a fix cannot be acted on and are ignored (docs/operations/container-ci.md).
+image-tars: images
+	docker save fip-api:local -o dist/fip-api.tar
+	docker save fip-worker:local -o dist/fip-worker.tar
+	docker save fip-tools:local -o dist/fip-tools.tar
+
+image-scan: export MSYS_NO_PATHCONV := 1
+image-scan: image-tars ## Scan the container images for HIGH and CRITICAL vulnerabilities that have a fix (Trivy)
+	docker run --rm -v "$(CURDIR)/dist:/in:ro" -v fip-trivy-cache:/root/.cache/trivy $(TRIVY_IMAGE) image --input /in/fip-api.tar --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+	docker run --rm -v "$(CURDIR)/dist:/in:ro" -v fip-trivy-cache:/root/.cache/trivy $(TRIVY_IMAGE) image --input /in/fip-worker.tar --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+	docker run --rm -v "$(CURDIR)/dist:/in:ro" -v fip-trivy-cache:/root/.cache/trivy $(TRIVY_IMAGE) image --input /in/fip-tools.tar --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+
+sbom: export MSYS_NO_PATHCONV := 1
+sbom: image-tars ## Write an SPDX software bill of materials per image into dist/ (Syft)
+	docker run --rm -v "$(CURDIR)/dist:/work" $(SYFT_IMAGE) scan docker-archive:/work/fip-api.tar -o spdx-json=/work/fip-api.spdx.json
+	docker run --rm -v "$(CURDIR)/dist:/work" $(SYFT_IMAGE) scan docker-archive:/work/fip-worker.tar -o spdx-json=/work/fip-worker.spdx.json
+	docker run --rm -v "$(CURDIR)/dist:/work" $(SYFT_IMAGE) scan docker-archive:/work/fip-tools.tar -o spdx-json=/work/fip-tools.spdx.json
 
 keyctl: ## Run the operator tool in a container, for example: make keyctl ARGS="key list"
 	$(COMPOSE) --profile tools run --rm keyctl $(ARGS)

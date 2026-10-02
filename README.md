@@ -61,6 +61,15 @@ The runtime role (`fip_app`) cannot change the schema or alter the audit log; se
 ### Rate limiting
 Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
 
+### Container checks
+```bash
+make dockerfile-lint compose-check   # Dockerfile (hadolint) and Compose validation
+make image-scan                      # build the images and scan them for HIGH/CRITICAL vulnerabilities with a fix (Trivy)
+make sbom                            # SPDX software bill of materials per image in dist/ (Syft)
+make test-race-docker                # unit tests with the race detector in a Linux container
+```
+The same checks run in CI ([container-ci](docs/operations/container-ci.md)).
+
 ### Worker
 `cmd/worker` is the background worker ([ADR-035](docs/adr/ADR-035-worker-process-and-queue-contract.md)). It runs no jobs yet; it has the API's lifecycle (configuration, logging, telemetry, graceful shutdown) and serves only `/healthz` and `/readyz` on `WORKER_HEALTH_ADDR` (loopback, `127.0.0.1:8082` by default). Run it on the host with `go run ./cmd/worker`.
 

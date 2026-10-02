@@ -29,7 +29,9 @@ credentials*.json
 
 # --- Go ---
 /bin/
-/dist/
+# Container image tars and SBOMs written by make image-scan and make sbom (the directory itself is kept)
+/dist/*
+!/dist/.gitkeep
 *.exe
 *.test
 *.out

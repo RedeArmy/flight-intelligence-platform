@@ -2,7 +2,7 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "test-race-docker", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "dockerfile-lint", "compose-check", "image-scan", "sbom", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "test-race-docker", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
     [string]$Target = "help",
     # Extra arguments for targets that take some, for example: .\scripts\dev.ps1 keyctl key list
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -19,6 +19,10 @@ $GitleaksVersion = "v8.30.1"
 $ActionlintVersion = "v1.7.12"
 $OapiCodegenVersion = "v2.8.0"
 # Linux image with a C compiler, for the race detector (keep in sync with RACE_IMAGE in the Makefile).
+# Container tooling, pinned like in the Makefile (keep in sync with TRIVY_IMAGE, SYFT_IMAGE, HADOLINT_IMAGE there).
+$TrivyImage = "aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
+$SyftImage = "anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c"
+$HadolintImage = "hadolint/hadolint:v2.15.1-debian@sha256:9a3944b7fddcb947d1ffd90829ac1a6e5c30479223358f249d8b96c7d0019e27"
 $RaceImage = "golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190"
 
 $env:GOTOOLCHAIN = "local"
@@ -67,7 +71,7 @@ function Scan-Secrets {
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images dockerfile-lint compose-check image-scan sbom keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -88,6 +92,27 @@ switch ($Target) {
         Invoke-Native docker @("build", "--target", "api", "-t", "fip-api:local", ".")
         Invoke-Native docker @("build", "--target", "worker", "-t", "fip-worker:local", ".")
         Invoke-Native docker @("build", "--target", "tools", "-t", "fip-tools:local", ".")
+    }
+    "dockerfile-lint" {
+        Get-Content -Raw Dockerfile | & docker run --rm -i $HadolintImage hadolint --failure-threshold warning -
+        if ($LASTEXITCODE -ne 0) { throw "hadolint failed with exit code $LASTEXITCODE" }
+    }
+    "compose-check" { Invoke-Native docker (Compose @("--profile", "app", "--profile", "tools", "--profile", "test", "config", "-q")) }
+    "image-scan" {
+        & $PSCommandPath images
+        $dist = Join-Path (Get-Location) "dist"
+        foreach ($n in @("api", "worker", "tools")) {
+            Invoke-Native docker @("save", "fip-$n`:local", "-o", "dist/fip-$n.tar")
+            Invoke-Native docker @("run", "--rm", "-v", "$dist`:/in:ro", "-v", "fip-trivy-cache:/root/.cache/trivy", $TrivyImage, "image", "--input", "/in/fip-$n.tar", "--scanners", "vuln", "--severity", "HIGH,CRITICAL", "--ignore-unfixed", "--exit-code", "1", "--no-progress")
+        }
+    }
+    "sbom" {
+        & $PSCommandPath images
+        $dist = Join-Path (Get-Location) "dist"
+        foreach ($n in @("api", "worker", "tools")) {
+            Invoke-Native docker @("save", "fip-$n`:local", "-o", "dist/fip-$n.tar")
+            Invoke-Native docker @("run", "--rm", "-v", "$dist`:/work", $SyftImage, "scan", "docker-archive:/work/fip-$n.tar", "-o", "spdx-json=/work/fip-$n.spdx.json")
+        }
     }
     "keyctl" { Invoke-Native docker (Compose (@("--profile", "tools", "run", "--rm", "keyctl") + $Rest)) }
     "restore-drill" { Invoke-Native go @("run", "./scripts/restoredrill") }
