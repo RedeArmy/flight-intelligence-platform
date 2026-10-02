@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -106,5 +107,62 @@ func TestDrainingFlag(t *testing.T) {
 	h.SetDraining()
 	if !h.Draining() {
 		t.Fatal("SetDraining had no effect")
+	}
+}
+
+func TestReadinessIsCachedAndSharedByConcurrentCallers(t *testing.T) {
+	var calls atomic.Int32
+	h := NewHealth(time.Second, Check{Name: "db", Critical: true, Run: func(context.Context) error {
+		calls.Add(1)
+		return nil
+	}})
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	h.now = func() time.Time { return now }
+
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Add(1)
+		go func() { defer wg.Done(); h.Readiness(context.Background()) }()
+	}
+	wg.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("50 concurrent callers ran the check %d times, want 1", got)
+	}
+
+	now = now.Add(DefaultReadinessCacheTTL + time.Millisecond)
+	h.Readiness(context.Background())
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("an expired result must be refreshed: %d runs", got)
+	}
+}
+
+func TestReadinessCacheDoesNotDelayDraining(t *testing.T) {
+	h := NewHealth(time.Second, okCheck("db", true))
+	if state, _ := h.Readiness(context.Background()); state != StateReady {
+		t.Fatalf("state %q", state)
+	}
+	h.SetDraining()
+	if state, _ := h.Readiness(context.Background()); state != StateNotReady {
+		t.Fatalf("draining must show at once, got %q", state)
+	}
+}
+
+func TestReadinessSurvivesACallerThatGivesUp(t *testing.T) {
+	h := NewHealth(time.Second, Check{Name: "db", Critical: true, Run: func(ctx context.Context) error { return ctx.Err() }})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if state, _ := h.Readiness(ctx); state != StateReady {
+		t.Fatalf("a cancelled caller must not fail the shared result, got %q", state)
+	}
+}
+
+func TestZeroTTLEvaluatesEveryCall(t *testing.T) {
+	var calls atomic.Int32
+	h := NewHealth(time.Second, Check{Name: "db", Run: func(context.Context) error { calls.Add(1); return nil }})
+	h.SetCacheTTL(0)
+	h.Readiness(context.Background())
+	h.Readiness(context.Background())
+	if calls.Load() != 2 {
+		t.Fatalf("runs = %d", calls.Load())
 	}
 }

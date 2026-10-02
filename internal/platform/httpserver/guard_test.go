@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
@@ -56,7 +58,7 @@ func whoamiFrom(h http.Handler, remote string) *httptest.ResponseRecorder {
 }
 
 func TestAddressLimitAnswers429WithHeadersBeforeAuthenticating(t *testing.T) {
-	auth := &fakeAuth{principal: Principal{ClientID: "c1", Role: RoleDeveloper}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c1", Role: access.RoleDeveloper}}
 	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{IP: perHour(2)}, nil)
 
 	for i := range 2 {
@@ -89,26 +91,26 @@ func TestAddressLimitAnswers429WithHeadersBeforeAuthenticating(t *testing.T) {
 }
 
 func TestTheClientLimitIsPerClient(t *testing.T) {
-	var current Principal
-	auth := authFunc(func(*http.Request) (Principal, error) { return current, nil })
+	var current access.Principal
+	auth := authFunc(func(*http.Request) (access.Principal, error) { return current, nil })
 	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{Client: perHour(1)}, nil)
 
-	current = Principal{ClientID: "alpha", Role: RoleDeveloper}
+	current = access.Principal{ClientID: "alpha", Role: access.RoleDeveloper}
 	if rec := whoamiFrom(h, "192.0.2.1:1"); rec.Code != http.StatusOK {
 		t.Fatalf("first: %d", rec.Code)
 	}
 	if rec := whoamiFrom(h, "192.0.2.1:1"); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("alpha's second request must be limited: %d", rec.Code)
 	}
-	current = Principal{ClientID: "beta", Role: RoleDeveloper}
+	current = access.Principal{ClientID: "beta", Role: access.RoleDeveloper}
 	if rec := whoamiFrom(h, "192.0.2.1:1"); rec.Code != http.StatusOK {
 		t.Fatalf("beta has its own bucket: %d", rec.Code)
 	}
 }
 
-type authFunc func(*http.Request) (Principal, error)
+type authFunc func(*http.Request) (access.Principal, error)
 
-func (f authFunc) Authenticate(r *http.Request) (Principal, error) { return f(r) }
+func (f authFunc) Authenticate(r *http.Request) (access.Principal, error) { return f(r) }
 
 func TestRepeatedFailedAuthenticationIsThrottledBeforeTheKeyIsChecked(t *testing.T) {
 	auth := &fakeAuth{err: ErrUnauthenticated}
@@ -129,7 +131,7 @@ func TestRepeatedFailedAuthenticationIsThrottledBeforeTheKeyIsChecked(t *testing
 	}
 
 	// A different address is unaffected, and so is a valid key from a clean address.
-	auth.err, auth.principal = nil, Principal{ClientID: "c", Role: RoleDeveloper}
+	auth.err, auth.principal = nil, access.Principal{ClientID: "c", Role: access.RoleDeveloper}
 	if rec := whoamiFrom(h, "203.0.113.10:1"); rec.Code != http.StatusOK {
 		t.Fatalf("clean address: %d", rec.Code)
 	}
@@ -141,7 +143,7 @@ func TestRepeatedFailedAuthenticationIsThrottledBeforeTheKeyIsChecked(t *testing
 }
 
 func TestSuccessfulAuthenticationsAreNotChargedAsFailures(t *testing.T) {
-	auth := &fakeAuth{principal: Principal{ClientID: "c", Role: RoleDeveloper}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}}
 	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{AuthFailure: perHour(1)}, nil)
 	for i := range 5 {
 		if rec := whoamiFrom(h, "203.0.113.20:1"); rec.Code != http.StatusOK {
@@ -174,7 +176,7 @@ func TestPublicRoutesAreNeverRateLimited(t *testing.T) {
 
 func TestLimiterFailureLetsTheRequestThroughAndIsLogged(t *testing.T) {
 	tl := newTestLog(t)
-	auth := &fakeAuth{principal: Principal{ClientID: "c", Role: RoleDeveloper}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}}
 	h := NewPublicHandler(PublicDeps{
 		Logger: tl.Logger, Auth: auth, Health: NewHealth(time.Second), MaxBodyBytes: 1 << 10,
 		Limiter: failingLimiter{}, Limits: Limits{IP: perHour(1), Client: perHour(1), AuthFailure: perHour(1)},
@@ -189,7 +191,7 @@ func TestLimiterFailureLetsTheRequestThroughAndIsLogged(t *testing.T) {
 
 func TestAuthorisationDenialIsAudited(t *testing.T) {
 	auditor := &recordingAuditor{}
-	auth := &fakeAuth{principal: Principal{ClientID: "c9", Role: Role("NOBODY")}} // a role with no permissions
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c9", Role: access.Role("NOBODY")}} // a role with no permissions
 	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{}, auditor)
 
 	rec := whoamiFrom(h, "192.0.2.1:1")
@@ -208,7 +210,7 @@ func TestAuthorisationDenialIsAudited(t *testing.T) {
 func TestAuditFailureDoesNotChangeTheResponse(t *testing.T) {
 	tl := newTestLog(t)
 	auditor := &recordingAuditor{err: errors.New("audit table unreachable")}
-	auth := &fakeAuth{principal: Principal{ClientID: "c", Role: Role("NOBODY")}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.Role("NOBODY")}}
 	h, _ := guardedHandler(t, tl, auth, Limits{}, auditor)
 	if rec := whoamiFrom(h, "192.0.2.1:1"); rec.Code != http.StatusForbidden {
 		t.Fatalf("still 403: %d", rec.Code)
@@ -224,5 +226,37 @@ func TestAuthenticationFailuresAreNotAudited(t *testing.T) {
 	whoamiFrom(h, "192.0.2.1:1")
 	if len(auditor.events) != 0 {
 		t.Fatalf("unauthenticated callers must not be able to write audit rows: %+v", auditor.events)
+	}
+}
+
+func TestDeniedRoutesCountAgainstTheClientLimit(t *testing.T) {
+	auditor := &recordingAuditor{}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c9", Role: access.Role("NOBODY")}}
+	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{Client: perHour(2)}, auditor)
+
+	var codes []int
+	for range 5 {
+		codes = append(codes, whoamiFrom(h, "192.0.2.1:1").Code)
+	}
+	want := []int{403, 403, 429, 429, 429}
+	if !slices.Equal(codes, want) {
+		t.Fatalf("codes = %v, want %v", codes, want)
+	}
+	if len(auditor.events) != 2 {
+		t.Fatalf("audit rows = %d, want 2: the audit trail must not grow faster than the client limit", len(auditor.events))
+	}
+}
+
+func TestIPv6AddressesOfOneNetworkShareTheAddressLimit(t *testing.T) {
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c1", Role: access.RoleDeveloper}}
+	h, _ := guardedHandler(t, newTestLog(t), auth, Limits{IP: perHour(2)}, nil)
+
+	whoamiFrom(h, "[2001:db8:1:2::1]:1")
+	whoamiFrom(h, "[2001:db8:1:2::2]:1")
+	if rec := whoamiFrom(h, "[2001:db8:1:2::3]:1"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("a third address in the same /64 must be limited, got %d", rec.Code)
+	}
+	if rec := whoamiFrom(h, "[2001:db8:1:9::1]:1"); rec.Code != http.StatusOK {
+		t.Fatalf("another network is separate, got %d", rec.Code)
 	}
 }

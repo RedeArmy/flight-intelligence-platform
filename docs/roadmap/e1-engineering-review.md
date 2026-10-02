@@ -33,7 +33,20 @@ Severity is the impact if it reached production. "Trigger" is the latest moment 
 | R-8 | Info | Known gaps recorded in `e1-closure.md` section 5: no Alertmanager, no scheduled backups or WAL archiving, no request body validation, no load test, no managed secret store or TLS edge. | `e1-closure.md` | Plan inside E2 and the "before leaving local" gate. | As scheduled there |
 | R-9 | Info | No independent review: the pull requests have 0 approvals. | GitHub | An independent review of the security-sensitive packages before E2 exits. | E2 exit |
 
-## 3. Method caveat
+## 3. Resolution (2026-10-02)
+
+| ID | Status | What changed |
+|---|---|---|
+| R-1 | Fixed, one part accepted | Readiness is cached for 1 s and evaluated once for concurrent callers; draining is applied on every call. Accepted: the public body still names `postgres` and `redis`; removing `checks` from the public response is a contract change, so it waits for the first non-loopback exposure, where the detail moves behind the internal listener. |
+| R-2 | Fixed | New package `internal/platform/access` holds `Principal`, `Role`, `Permission` and the context helpers. `httpserver` keeps the HTTP-bound `Authenticator`. |
+| R-3 | Fixed | The client limit now runs before authorisation, so denial audit rows are bounded by it. |
+| R-4 | Fixed | IPv6 is limited per /64; eviction removes the fullest of a random sample of 16 buckets. Not LRU, which would cost a list update per request. |
+| R-5 | Fixed | `stop_grace_period: 35s` on `api` and `worker`. |
+| R-6 | Fixed | Probes produce no spans and no request metrics. |
+| R-7 | Fixed | Removed `.gitkeep` from 13 directories that have content. |
+| R-8, R-9 | Open | Unchanged: they are scheduled work, not defects fixable in this branch. |
+
+## 4. Method caveat
 
 The first load runs were invalid: unpaced floods exhausted client ports, and Git Bash rewrote the request path.
 The valid comparison is the paced one in R-1 only. It is one run per endpoint on one machine, so it supports "readiness is an amplifier", not a capacity figure.

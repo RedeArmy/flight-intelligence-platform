@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/telemetry"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
@@ -78,7 +79,7 @@ func (o *obsRig) ended(t *testing.T) []sdktrace.ReadOnlySpan {
 
 func TestEachRequestProducesOneServerSpanNamedAfterTheRoute(t *testing.T) {
 	o := newObsRig(t)
-	auth := &fakeAuth{principal: Principal{ClientID: "c1", Role: RoleDeveloper}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c1", Role: access.RoleDeveloper}}
 	req := httptest.NewRequest(http.MethodGet, "/v1/whoami?secret=abc&email=a@b.c", nil)
 	req.Header.Set("Authorization", "Bearer sk")
 	req.Header.Set("X-Request-Id", "req-trace-0001")
@@ -115,9 +116,9 @@ func TestEachRequestProducesOneServerSpanNamedAfterTheRoute(t *testing.T) {
 func TestAnInboundTraceparentIsLinkedNeverTrusted(t *testing.T) {
 	o := newObsRig(t)
 	const remoteTrace = "4bf92f3577b34da6a3ce929d0e0e4736"
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := authedRequest("/v1/whoami")
 	req.Header.Set("traceparent", "00-"+remoteTrace+"-00f067aa0ba902b7-01")
-	o.handler(nil).ServeHTTP(httptest.NewRecorder(), req)
+	o.handler(&fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}}).ServeHTTP(httptest.NewRecorder(), req)
 
 	s := o.ended(t)[0]
 	if s.SpanContext().TraceID().String() == remoteTrace || s.Parent().IsValid() {
@@ -180,7 +181,7 @@ func TestUnknownPathsUseOneBoundedRouteLabel(t *testing.T) {
 
 func TestLogLinesCarryTheTraceIDOfTheirRequest(t *testing.T) {
 	o := newObsRig(t)
-	o.handler(&fakeAuth{principal: Principal{ClientID: "c", Role: RoleDeveloper}}).ServeHTTP(
+	o.handler(&fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}}).ServeHTTP(
 		httptest.NewRecorder(), authedRequest("/v1/whoami"))
 
 	span := o.ended(t)[0]
@@ -208,10 +209,10 @@ func authedRequest(path string) *http.Request {
 
 func TestRequestMetricsHaveRouteAndStatus(t *testing.T) {
 	o := newObsRig(t)
-	h := o.handler(&fakeAuth{principal: Principal{ClientID: "c", Role: RoleDeveloper}})
+	h := o.handler(&fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}})
 	h.ServeHTTP(httptest.NewRecorder(), authedRequest("/v1/whoami"))
 	h.ServeHTTP(httptest.NewRecorder(), authedRequest("/v1/whoami"))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil)) // a probe: not recorded
 
 	got := map[string]int64{}
 	for _, sm := range o.collect(t).ScopeMetrics {
@@ -226,7 +227,7 @@ func TestRequestMetricsHaveRouteAndStatus(t *testing.T) {
 			}
 		}
 	}
-	if got["/v1/whoami 200"] != 2 || got["/healthz 200"] != 1 || len(got) != 2 {
+	if got["/v1/whoami 200"] != 2 || len(got) != 1 {
 		t.Fatalf("counts = %v", got)
 	}
 }
@@ -253,7 +254,7 @@ func (o *obsRig) counterTotal(t *testing.T, name, label, value string) int64 {
 func TestRateLimitedRequestsAreCounted(t *testing.T) {
 	o := newObsRig(t)
 	h := NewPublicHandler(PublicDeps{
-		Logger: o.logger, Auth: &fakeAuth{principal: Principal{ClientID: "c", Role: RoleDeveloper}}, Health: NewHealth(time.Second),
+		Logger: o.logger, Auth: &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleDeveloper}}, Health: NewHealth(time.Second),
 		MaxBodyBytes: 1 << 10, Telemetry: o.inst,
 		Limiter: ratelimit.NewMemory(clock.NewFake(guardT0), 0), Limits: Limits{IP: perHour(1)},
 	})
@@ -288,5 +289,19 @@ func TestNilInstrumentationIsAPassThrough(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	if !called {
 		t.Fatal("the wrapped handler must run")
+	}
+}
+
+func TestProbesProduceNoSpansAndNoRequestMetrics(t *testing.T) {
+	o := newObsRig(t)
+	h := o.handler(nil)
+	for _, path := range []string{"/healthz", "/readyz"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+	}
+	if n := len(o.ended(t)); n != 0 {
+		t.Fatalf("probes produced %d spans", n)
+	}
+	if total := o.counterTotal(t, "http.server.requests", "", ""); total != 0 {
+		t.Fatalf("probes counted %d requests", total)
 	}
 }

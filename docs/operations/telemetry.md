@@ -41,7 +41,7 @@ Every log record written while handling a request carries `request_id`, `trace_i
 ## SLOs, alerts and the dashboard
 The availability SLO of `docs/operations/reliability-and-observability.md` is measured from `http_server_requests_total`:
 **good** requests (2xx and 3xx) over **valid** requests (2xx, 3xx and 5xx), for the `api` job, with the liveness and readiness
-probes excluded (they are not user traffic) and client errors (4xx) counted for neither side. The target is 99.9%, an error budget
+probes excluded (they are not user traffic, so the API emits neither spans nor request metrics for them; readiness has its own gauge) and client errors (4xx) counted for neither side. The target is 99.9%, an error budget
 of 0.1%. All numbers are hypotheses to validate by measurement.
 
 | What | Where |

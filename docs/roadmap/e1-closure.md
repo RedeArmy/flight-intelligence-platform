@@ -121,4 +121,4 @@ Signed on 2026-10-02 by the owner, after the review in [e1-engineering-review.md
 - [x] Owner takes the two repository actions of section 5 (verified on 2026-10-02: `dependency-review` succeeded on the PR #18 head and `codeql` succeeded on `main`).
 - [ ] E2 design plan started. Left open on purpose: it has not started. It is the first E2 step.
 
-Carried into E2 from the review: R-1 (cache `/readyz`) before any non-loopback listener, R-2 (move `Principal` out of `httpserver`) before the first application service.
+The review findings R-1 to R-7 are fixed in the same branch (see section 3 of the review). Open from it: R-8 (known gaps) and R-9 (independent review), plus the public `/readyz` body that still names its dependencies.

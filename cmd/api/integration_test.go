@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database/dbtest"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/secret"
@@ -136,7 +136,7 @@ func TestAPIKeyLifecycleEndToEnd(t *testing.T) {
 	}
 	admin := apiauth.NewAdmin(pool, hasher, clock.System{})
 	ctx := context.Background()
-	if _, err := admin.CreateClient(ctx, "e2e-client", httpserver.RoleDeveloper); err != nil {
+	if _, err := admin.CreateClient(ctx, "e2e-client", access.RoleDeveloper); err != nil {
 		t.Fatal(err)
 	}
 	key, err := admin.IssueKey(ctx, "e2e-client", time.Hour)
@@ -210,7 +210,7 @@ func redisEnv(t *testing.T, limits map[string]string) map[string]string {
 	return env
 }
 
-func issueKey(t *testing.T, env *dbtest.Env, client string, role httpserver.Role) string {
+func issueKey(t *testing.T, env *dbtest.Env, client string, role access.Role) string {
 	t.Helper()
 	pool, err := database.Open(context.Background(), env.Config(dbtest.RoleAdmin))
 	if err != nil {
@@ -237,7 +237,7 @@ func issueKey(t *testing.T, env *dbtest.Env, client string, role httpserver.Role
 func TestRateLimitingWithRedisEndToEnd(t *testing.T) {
 	env := dbtest.NewMigrated(t)
 	base := startAPI(t, env, redisEnv(t, map[string]string{"RATE_LIMIT_CLIENT_PER_MIN": "3"}))
-	token := issueKey(t, env, "limited", httpserver.RoleDeveloper)
+	token := issueKey(t, env, "limited", access.RoleDeveloper)
 
 	for i := range 3 {
 		if code, body := whoami(t, base, token); code != http.StatusOK {
@@ -274,7 +274,7 @@ func TestRateLimitingSurvivesARedisOutage(t *testing.T) {
 	base := startAPI(t, env, map[string]string{
 		"REDIS_ADDR": "127.0.0.1:1", "REDIS_TLS": "false", "REDIS_TIMEOUT": "100ms", "RATE_LIMIT_CLIENT_PER_MIN": "4",
 	})
-	token := issueKey(t, env, "outage", httpserver.RoleDeveloper)
+	token := issueKey(t, env, "outage", access.RoleDeveloper)
 
 	ok := 0
 	for range 6 {
@@ -297,7 +297,7 @@ func TestRateLimitingSurvivesARedisOutage(t *testing.T) {
 func TestAuthorisationDenialsReachTheAuditLog(t *testing.T) {
 	env := dbtest.NewMigrated(t)
 	base := startAPI(t, env, nil)
-	token := issueKey(t, env, "denied", httpserver.RoleDeveloper)
+	token := issueKey(t, env, "denied", access.RoleDeveloper)
 
 	ctx := context.Background()
 	conn := env.Super(ctx)

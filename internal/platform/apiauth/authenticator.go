@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
@@ -81,23 +82,23 @@ func (a *Authenticator) observe(ctx context.Context, class string) {
 
 // Authenticate implements httpserver.Authenticator. Every credential problem (missing, malformed, unknown,
 // wrong, expired, revoked, inactive client) returns the same ErrUnauthenticated; the reason goes to the log only.
-func (a *Authenticator) Authenticate(r *http.Request) (httpserver.Principal, error) {
+func (a *Authenticator) Authenticate(r *http.Request) (access.Principal, error) {
 	ctx := r.Context()
 	token, ok := httpserver.BearerToken(r)
 	if !ok {
 		a.observe(ctx, ClassMissing)
-		return httpserver.Principal{}, httpserver.ErrUnauthenticated
+		return access.Principal{}, httpserver.ErrUnauthenticated
 	}
 	prefix, keySecret, err := security.ParseKey(token)
 	if err != nil {
 		a.reject(ctx, "malformed", "", ClassMalformed)
-		return httpserver.Principal{}, httpserver.ErrUnauthenticated
+		return access.Principal{}, httpserver.ErrUnauthenticated
 	}
 
 	rec, found, err := a.store.FindByPrefix(ctx, prefix)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "api key lookup failed", "error", err)
-		return httpserver.Principal{}, sharederrors.Unavailable(CodeAuthUnavailable, "authentication is temporarily unavailable").WithCause(err)
+		return access.Principal{}, sharederrors.Unavailable(CodeAuthUnavailable, "authentication is temporarily unavailable").WithCause(err)
 	}
 	stored := a.decoy
 	if found {
@@ -106,16 +107,16 @@ func (a *Authenticator) Authenticate(r *http.Request) (httpserver.Principal, err
 	secretMatches := a.hasher.Matches(stored, keySecret)
 	if !found || !secretMatches {
 		a.reject(ctx, "unknown_or_wrong", prefix, ClassInvalidCredentials)
-		return httpserver.Principal{}, httpserver.ErrUnauthenticated
+		return access.Principal{}, httpserver.ErrUnauthenticated
 	}
 	now := a.clock.Now()
 	if reason := inactiveReason(rec, now); reason != "" {
 		a.reject(ctx, reason, prefix, ClassInactive)
-		return httpserver.Principal{}, httpserver.ErrUnauthenticated
+		return access.Principal{}, httpserver.ErrUnauthenticated
 	}
 
 	a.touch(ctx, rec, now)
-	return httpserver.Principal{ClientID: rec.ClientID, Role: httpserver.Role(rec.Role)}, nil
+	return access.Principal{ClientID: rec.ClientID, Role: access.Role(rec.Role)}, nil
 }
 
 func inactiveReason(rec KeyRecord, now time.Time) string {

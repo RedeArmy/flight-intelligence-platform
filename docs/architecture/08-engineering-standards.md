@@ -7,7 +7,7 @@ cmd/api, cmd/worker             thin mains: config → wire → run → graceful
 internal/<context>/{domain,application,ports,adapters}
     contexts: shopping, verification, history, intelligence, monitoring
 internal/provider/{gateway,resilience,connectors/<name>}
-internal/platform/{config,database,cache,queue,observability,security,httpserver,featureflags}
+internal/platform/{access,config,database,cache,queue,observability,security,httpserver,featureflags}
 internal/shared/{money,errors,clock}     tiny kernel; additions need justification
 api/openapi/v1   migrations   test/{integration,contract,e2e,performance,resilience,fixtures/providers}
 deployments/{docker,local}   terraform/{modules,environments/*}   scripts   .github/workflows

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"runtime/debug"
 	"strings"
@@ -106,6 +107,29 @@ func remoteHost(addr string) string {
 		return addr
 	}
 	return host
+}
+
+// ipv6Prefix is the prefix length that identifies one IPv6 subscriber: providers hand out a /64 or shorter, so one
+// client controls every address inside it and per-address buckets would give it unlimited buckets.
+const ipv6Prefix = 64
+
+// limiterAddr is the address the rate limiter buckets by: an IPv4 address as is, an IPv6 address reduced to its /64
+// network. An address that does not parse is used unchanged.
+func limiterAddr(addr string) string {
+	host := remoteHost(addr)
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+	ip = ip.Unmap().WithZone("")
+	if ip.Is4() {
+		return ip.String()
+	}
+	prefix, err := ip.Prefix(ipv6Prefix)
+	if err != nil {
+		return host
+	}
+	return prefix.String()
 }
 
 // securityHeaders sets conservative response headers for a JSON API. HSTS is left to the TLS-terminating edge.

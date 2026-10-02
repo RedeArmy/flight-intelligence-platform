@@ -203,6 +203,7 @@ services:
     image: fip-api:local
     <<: *app-hardening
     restart: unless-stopped
+    stop_grace_period: 35s # above HTTP_SHUTDOWN_TIMEOUT (25s), so Docker does not SIGKILL requests that are still draining
     environment:
       <<: *app-environment
       HTTP_ADDR: ":8080"
@@ -235,6 +236,7 @@ services:
     image: fip-worker:local
     <<: *app-hardening
     restart: unless-stopped
+    stop_grace_period: 35s # above HTTP_SHUTDOWN_TIMEOUT (25s), as for the api
     environment:
       <<: *app-environment
       TELEMETRY_OTLP_ENDPOINT: http://otel-collector:4318

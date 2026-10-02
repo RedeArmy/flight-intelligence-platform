@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database/dbtest"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 )
 
 // otlpSink is a stand-in OpenTelemetry collector: an OTLP/HTTP receiver that keeps what it is sent.
@@ -50,7 +50,7 @@ func TestTelemetryReachesTheCollectorEndToEnd(t *testing.T) {
 	base, stop := startStoppableAPI(t, env, map[string]string{
 		"TELEMETRY_OTLP_ENDPOINT": sink.srv.URL, "TELEMETRY_METRIC_INTERVAL": "1s",
 	})
-	token := issueKey(t, env, "traced", httpserver.RoleDeveloper)
+	token := issueKey(t, env, "traced", access.RoleDeveloper)
 
 	if code, body := whoami(t, base, token); code != http.StatusOK {
 		t.Fatalf("valid call: %d %s", code, body)

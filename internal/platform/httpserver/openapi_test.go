@@ -13,6 +13,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 )
 
 const specPath = "../../../api/openapi/v1/openapi.yaml"
@@ -111,7 +113,7 @@ func checkOperationAgainstPolicy(t *testing.T, op specOperation) {
 		}
 		return
 	}
-	if op.permission == "" || Permission(op.permission) != policy.permission {
+	if op.permission == "" || access.Permission(op.permission) != policy.permission {
 		t.Errorf("%s: x-permission %q does not match policy permission %q", op.key, op.permission, policy.permission)
 	}
 	if !someRoleCan(policy.permission) {
@@ -119,8 +121,8 @@ func checkOperationAgainstPolicy(t *testing.T, op specOperation) {
 	}
 }
 
-func someRoleCan(p Permission) bool {
-	for role := range rolePermissions {
+func someRoleCan(p access.Permission) bool {
+	for _, role := range []access.Role{access.RoleUser, access.RoleDeveloper, access.RoleOperator, access.RoleAdmin, access.RoleService} {
 		if role.Can(p) {
 			return true
 		}
