@@ -1,0 +1,73 @@
+# OpenTelemetry Collector for the local stack (ADR-019, ADR-033). The API sends OTLP/HTTP here; the collector decides what
+# is kept and where it goes, so the application never depends on a backend.
+#
+# Slice S6 adds the collector, Jaeger and Prometheus to Compose and enables the `otlp/jaeger` trace exporter and a
+# Prometheus scrape of port 8889. Until then, run it by hand to see the telemetry:
+#
+#   docker run --rm -p 127.0.0.1:4318:4318 -v ./deployments/local/otel-collector.yaml:/etc/otelcol/config.yaml:ro \
+#       otel/opentelemetry-collector-contrib:0.161.0 --config /etc/otelcol/config.yaml
+#   TELEMETRY_OTLP_ENDPOINT=http://127.0.0.1:4318 make run
+#
+# Validate the file after editing it:
+#
+#   docker run --rm -v ./deployments/local/otel-collector.yaml:/c.yaml:ro \
+#       otel/opentelemetry-collector-contrib:0.161.0 validate --config /c.yaml
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        # Inside the container; Compose publishes it on 127.0.0.1 only.
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Protects the collector itself: refuse data rather than run out of memory.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  # Tail sampling (ADR-033): the API records a trace for every request locally and the collector decides what to keep.
+  # Errors and slow requests are always kept; the probabilistic policy keeps the rest. Locally it keeps all of them;
+  # lower sampling_percentage when traffic makes that expensive.
+  tail_sampling:
+    decision_wait: 5s
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 100
+
+  batch: {}
+
+exporters:
+  # Prints a one-line summary of what arrives. Raise the verbosity to `detailed` to see every attribute.
+  debug:
+    verbosity: basic
+
+  # Metrics are exposed for Prometheus to scrape. Names are translated: http.server.requests becomes
+  # http_server_requests_total, and a unit of "s" becomes the suffix _seconds.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, prometheus]
