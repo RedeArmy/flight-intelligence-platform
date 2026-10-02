@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -44,6 +45,11 @@ const (
 // main only wires the operating system: signals, the real environment and the process exit code.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if len(os.Args) > 1 && os.Args[1] == healthcheckCommand {
+		code := healthcheck(ctx, config.LookupFromEnv(), http.DefaultClient, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
 	code := realMain(ctx, runOptions{Lookup: config.LookupFromEnv(), DotEnvPath: ".env", Stdout: os.Stdout}, os.Stderr)
 	stop()
 	os.Exit(code)

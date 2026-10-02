@@ -38,6 +38,16 @@ make run     # serves on :8080 (public) and 127.0.0.1:8081 (operator)
 curl -i http://localhost:8080/healthz
 ```
 
+### Local stack (Docker Compose)
+```bash
+make dev                  # infrastructure: PostgreSQL, Redis, collector, Jaeger (16686), Prometheus (9090)
+make stack                # plus the migrations and the API in containers (http://127.0.0.1:8080)
+make keyctl ARGS="client create -name my-app -role DEVELOPER"   # operator tool in a container
+make restore-drill        # prove the database can be restored from a backup
+make dev-down             # stop everything, keeping the data volumes
+```
+The containers are read-only, run as an unprivileged user with no capabilities, and read their secrets from `./secrets` as Docker secrets ([ADR-034](docs/adr/ADR-034-container-images-and-local-stack.md)). On Linux, run `export FIP_UID=$(id -u) FIP_GID=$(id -g)` first so the containers can read those files. Every port is published on `127.0.0.1` only.
+
 ### Local database
 ```bash
 make local-secrets   # once: generates ./secrets (git-ignored; never overwrites)

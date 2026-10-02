@@ -27,3 +27,6 @@ Local-only for now. RPO 15 min / RTO 1 h remain the targets for the future deplo
 scripted `pg_dump` plus WAL archiving to a local volume, and a `make restore-drill` target that restores into a
 scratch database, runs integrity checks and reports elapsed time. Managed multi-AZ + PITR, cross-region copies and
 infrastructure rebuild-from-IaC apply once a vendor is chosen.
+
+## Amendment (S6, 2026-10-02)
+`make restore-drill` exists (ADR-034): it restores the running local database into a scratch database, compares tables, row counts and the migration version, and reports the time of each step. WAL archiving is not implemented yet; the drill covers the logical dump only.
