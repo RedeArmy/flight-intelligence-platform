@@ -2,7 +2,7 @@
 # Mirrors the Makefile exactly; keep both in sync. CI uses the Makefile.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
+    [ValidateSet("help", "setup", "hooks", "tools", "fmt", "vet", "lint", "workflows", "generate", "openapi", "run", "local-secrets", "dev", "dev-down", "stack", "images", "keyctl", "restore-drill", "db-up", "db-down", "test-db", "test-db-down", "migrate", "migration-check", "test", "test-race", "test-race-docker", "integration", "coverage", "coverage-integration", "arch", "vuln", "sast", "secrets", "security", "build", "ci")]
     [string]$Target = "help",
     # Extra arguments for targets that take some, for example: .\scripts\dev.ps1 keyctl key list
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -18,6 +18,8 @@ $GosecVersion = "v2.29.0"
 $GitleaksVersion = "v8.30.1"
 $ActionlintVersion = "v1.7.12"
 $OapiCodegenVersion = "v2.8.0"
+# Linux image with a C compiler, for the race detector (keep in sync with RACE_IMAGE in the Makefile).
+$RaceImage = "golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190"
 
 $env:GOTOOLCHAIN = "local"
 $env:GOFLAGS = "-mod=readonly"
@@ -65,7 +67,7 @@ function Scan-Secrets {
 }
 
 switch ($Target) {
-    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch vuln sast secrets security build ci" }
+    "help" { "Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch vuln sast secrets security build ci" }
     "hooks" { Invoke-Native git @("config", "core.hooksPath", ".githooks") }
     "tools" { Tools }
     "setup" { Tools; Invoke-Native git @("config", "core.hooksPath", ".githooks") }
@@ -103,6 +105,10 @@ switch ($Target) {
     }
     "test" { Invoke-Native go @("test", "-count=1", "./...") }
     "test-race" { Invoke-Native go @("test", "-race", "-count=1", "./...") }
+    "test-race-docker" {
+        # Same run as CI's test-race job, in a Linux container: no C compiler needed on this machine.
+        Invoke-Native docker @("run", "--rm", "-v", "$((Get-Location).Path):/src:ro", "-v", "fip-gomod:/go/pkg/mod", "-v", "fip-gobuild:/root/.cache/go-build", "-w", "/src", "-e", "GOTOOLCHAIN=local", "-e", "GOFLAGS=-mod=readonly", $RaceImage, "go", "test", "-race", "-count=1", "./...")
+    }
     "integration" {
         # Explicit DSN on purpose: an unreachable test database must fail the run, never skip silently.
         if (-not $env:TEST_POSTGRES_DSN) { $env:TEST_POSTGRES_DSN = "postgres://postgres@127.0.0.1:55432/postgres?sslmode=disable" }

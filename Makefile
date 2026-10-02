@@ -8,6 +8,9 @@ GOSEC_VERSION         := v2.29.0
 GITLEAKS_VERSION      := v8.30.1
 ACTIONLINT_VERSION    := v1.7.12
 OAPI_CODEGEN_VERSION  := v2.8.0
+# Linux image with a C compiler, for the race detector on machines that have none (Windows). Same Go as go.mod (ADR-030),
+# pinned by digest; update it together with the Go version.
+RACE_IMAGE            := golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190
 
 export GOTOOLCHAIN := local
 export GOFLAGS     := -mod=readonly
@@ -29,10 +32,10 @@ OAPI_CODEGEN  := $(GOBIN)/oapi-codegen$(EXE)
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
-.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
+.PHONY: help setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 help: ## List targets
-	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
+	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race test-race-docker integration coverage coverage-integration arch security vuln sast secrets build ci
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -135,6 +138,12 @@ test: ## Unit tests
 
 test-race: ## Unit tests with the race detector (needs a C toolchain on Windows)
 	go test -race -count=1 ./...
+
+# The same run as CI's test-race job, in a Linux container, so it works on a machine without a C compiler. The source is
+# mounted read-only; module and build caches live in named volumes, so only the first run downloads anything.
+test-race-docker: export MSYS_NO_PATHCONV := 1
+test-race-docker: ## Unit tests with the race detector in a Linux container (no C toolchain needed)
+	docker run --rm -v "$(CURDIR):/src:ro" -v fip-gomod:/go/pkg/mod -v fip-gobuild:/root/.cache/go-build -w /src -e GOTOOLCHAIN=local -e GOFLAGS=-mod=readonly $(RACE_IMAGE) go test -race -count=1 ./...
 
 # The DSN is set explicitly on purpose: when TEST_POSTGRES_DSN is set the harness FAILS if the database is unreachable
 # instead of silently skipping, so a missing test database can never look like a green run.
