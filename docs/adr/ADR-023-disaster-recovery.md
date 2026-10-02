@@ -29,4 +29,4 @@ scratch database, runs integrity checks and reports elapsed time. Managed multi-
 infrastructure rebuild-from-IaC apply once a vendor is chosen.
 
 ## Amendment (S6, 2026-10-02)
-`make restore-drill` exists (ADR-034): it restores the running local database into a scratch database, compares tables, row counts and the migration version, and reports the time of each step. WAL archiving is not implemented yet; the drill covers the logical dump only.
+`make restore-drill` exists (ADR-034), and the backup and restore procedure is in [db-restore](../operations/runbooks/db-restore.md): it restores the running local database into a scratch database, compares tables, row counts and the migration version, and reports the time of each step. WAL archiving is not implemented yet; the drill covers the logical dump only.

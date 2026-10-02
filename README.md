@@ -61,6 +61,12 @@ The runtime role (`fip_app`) cannot change the schema or alter the audit log; se
 ### Rate limiting
 Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
 
+### Runbooks
+Procedures for operating the platform, each run and dated on the local stack: [rollback](docs/operations/runbooks/rollback.md),
+[key rotation](docs/operations/runbooks/key-rotation.md), [database backup and restore](docs/operations/runbooks/db-restore.md) and
+a skeleton for [disabling a provider](docs/operations/runbooks/provider-disable.md) (nothing to disable yet). Index and rules:
+[runbooks](docs/operations/runbooks/README.md).
+
 ### Container checks
 ```bash
 make dockerfile-lint compose-check   # Dockerfile (hadolint) and Compose validation
