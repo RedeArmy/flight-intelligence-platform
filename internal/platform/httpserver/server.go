@@ -79,9 +79,11 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}
 
-	servers := []*http.Server{s.newHTTPServer(s.opts.Public)}
+	// Each goroutine gets its own server variable: they must not read a slice that this function appends to.
+	pub := s.newHTTPServer(s.opts.Public)
+	servers := []*http.Server{pub}
 	errCh := make(chan error, 2)
-	go func() { errCh <- serve("public", servers[0], pubLn) }()
+	go func() { errCh <- serve("public", pub, pubLn) }()
 	var opAddr net.Addr
 	if opLn != nil {
 		op := s.newHTTPServer(s.opts.Operator)
