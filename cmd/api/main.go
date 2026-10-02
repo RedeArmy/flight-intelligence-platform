@@ -1,7 +1,8 @@
 // Command api runs the public HTTP API and the operator listener.
 //
-// It is the composition root: it loads configuration, builds the logger, opens the database pool and wires the server.
-// Business logic does not live here (ADR-006).
+// It is the composition root: it starts the shared services (configuration, logger, telemetry, database pool), builds
+// what only the API needs (authentication, rate limiting, audit) and wires the server. Business logic does not live
+// here (ADR-006).
 package main
 
 import (
@@ -18,35 +19,29 @@ import (
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/cache"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/cli"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/config"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/telemetry"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/service"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
 )
 
 const (
-	appPasswordSecret = "postgres_password"
-	pepperSecret      = "api_key_pepper" // #nosec G101 -- a secret name, not a secret
+	pepperSecret = "api_key_pepper" // #nosec G101 -- a secret name, not a secret
 	// redisPasswordSecret is optional: a local Redis has no password.
 	redisPasswordSecret = "redis_password" // #nosec G101 -- a secret name, not a secret
 	// fallbackRetry is how long the limiter keeps using local limits after Redis fails before trying Redis again.
 	fallbackRetry = 5 * time.Second
-	// telemetryShutdownTimeout bounds the final flush of traces and metrics.
-	telemetryShutdownTimeout = 5 * time.Second
-	// readinessTimeout bounds each readiness check, so a hung dependency cannot hang the probe.
-	readinessTimeout = 2 * time.Second
 )
 
 // main only wires the operating system: signals, the real environment and the process exit code.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	if len(os.Args) > 1 && os.Args[1] == healthcheckCommand {
-		code := healthcheck(ctx, config.LookupFromEnv(), http.DefaultClient, os.Stderr)
+	if len(os.Args) > 1 && os.Args[1] == cli.HealthcheckCommand {
+		code := cli.Healthcheck(ctx, config.LookupFromEnv(), "HTTP_ADDR", ":8080", http.DefaultClient, os.Stderr)
 		stop()
 		os.Exit(code)
 	}
@@ -74,83 +69,40 @@ type runOptions struct {
 
 // run starts the API and blocks until ctx is cancelled or a listener fails.
 func run(ctx context.Context, o runOptions) error {
-	lookup, err := config.LookupWithDotEnv(o.DotEnvPath, o.Lookup)
+	svc, err := service.Start(ctx, service.Options{Name: "api", Lookup: o.Lookup, DotEnvPath: o.DotEnvPath, Stdout: o.Stdout})
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(lookup)
-	if err != nil {
-		return err
-	}
-	logger, err := logging.New(logging.Options{
-		Service: "api",
-		Env:     string(cfg.App.Env),
-		Version: cfg.App.Version,
-		Level:   cfg.Log.Level,
-		Format:  cfg.Log.Format,
-		Out:     o.Stdout,
-		Trace:   telemetry.TraceIDs,
-	})
-	if err != nil {
-		return err
-	}
+	defer svc.Close(ctx)
 
-	tel, inst, err := newTelemetry(ctx, cfg)
+	auth, err := newAuthenticator(ctx, svc)
 	if err != nil {
 		return err
 	}
-	defer shutdownTelemetry(ctx, tel, logger)
-
-	store, err := security.NewLocalStore(cfg.App.Env, lookup, cfg.Secrets.Dir)
-	if err != nil {
-		return err
-	}
-	pool, err := openDatabase(ctx, cfg, store, tel)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-
-	auth, err := newAuthenticator(ctx, store, pool, logger, inst.Metrics)
-	if err != nil {
-		return err
-	}
-	lim, err := newLimiting(ctx, cfg, store, logger)
+	lim, err := newLimiting(ctx, svc.Config, svc.Secrets, svc.Logger)
 	if err != nil {
 		return err
 	}
 	defer lim.release()
 
-	srv, err := newServer(cfg, logger, serverDeps{
-		pool: pool, auth: auth, limiting: lim, auditor: apiauth.NewPGAuditor(pool, clock.System{}), tel: tel, inst: inst,
+	srv, err := newServer(svc, serverDeps{
+		auth: auth, limiting: lim, auditor: apiauth.NewPGAuditor(svc.Pool, clock.System{}),
 	}, o.OnListening)
 	if err != nil {
 		return err
 	}
-	logger.InfoContext(ctx, "api starting", "env", string(cfg.App.Env))
+	svc.Logger.InfoContext(ctx, "api starting")
 	if err := srv.Run(ctx); err != nil {
 		return err
 	}
-	logger.InfoContext(ctx, "api stopped")
+	svc.Logger.InfoContext(ctx, "api stopped")
 	return nil
-}
-
-// openDatabase reads the runtime password from the secret store and opens the pool. The pool connects lazily: the API
-// starts even if PostgreSQL is still coming up and reports not ready until it answers.
-func openDatabase(ctx context.Context, cfg config.Config, store security.SecretGetter, tel *telemetry.Telemetry) (*database.Pool, error) {
-	password, err := store.Get(ctx, appPasswordSecret)
-	if err != nil {
-		return nil, fmt.Errorf("database password: %w", err)
-	}
-	dbCfg := database.FromConfig(cfg.Postgres, cfg.Postgres.User, password, "api")
-	dbCfg.Tracing = tel.TracerProvider()
-	return database.Open(ctx, dbCfg)
 }
 
 // newAuthenticator builds the API-key authenticator. The pepper comes from the secret store; without it the API
 // refuses to start, because an authenticator that cannot verify keys would only ever deny.
-func newAuthenticator(ctx context.Context, store security.SecretGetter, pool *database.Pool, logger *slog.Logger, metrics *telemetry.Metrics) (*apiauth.Authenticator, error) {
-	pepper, err := store.Get(ctx, pepperSecret)
+func newAuthenticator(ctx context.Context, svc *service.Service) (*apiauth.Authenticator, error) {
+	pepper, err := svc.Secrets.Get(ctx, pepperSecret)
 	if err != nil {
 		return nil, fmt.Errorf("API key pepper: %w", err)
 	}
@@ -158,7 +110,8 @@ func newAuthenticator(ctx context.Context, store security.SecretGetter, pool *da
 	if err != nil {
 		return nil, err
 	}
-	return apiauth.New(apiauth.NewPGStore(pool), hasher, clock.System{}, logger).WithFailureObserver(metrics.AuthFailure), nil
+	auth := apiauth.New(apiauth.NewPGStore(svc.Pool), hasher, clock.System{}, svc.Logger)
+	return auth.WithFailureObserver(svc.Inst.Metrics.AuthFailure), nil
 }
 
 // limiting is the rate limiter and, when Redis is configured, its optional readiness check.
@@ -198,35 +151,32 @@ func newLimiting(ctx context.Context, cfg config.Config, store security.SecretGe
 	}, nil
 }
 
-// serverDeps are the built components newServer wires together.
+// serverDeps are the API-specific components newServer wires together.
 type serverDeps struct {
-	pool     *database.Pool
 	auth     httpserver.Authenticator
 	limiting limiting
 	auditor  httpserver.Auditor
-	tel      *telemetry.Telemetry
-	inst     *httpserver.Instrumentation
 }
 
-func newServer(cfg config.Config, logger *slog.Logger, d serverDeps, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
-	checks := append([]httpserver.Check{{Name: "postgres", Critical: true, Run: d.pool.Check}}, d.limiting.checks...)
-	health := httpserver.NewHealth(readinessTimeout, checks...)
-	if err := registerGauges(d, health); err != nil {
+func newServer(svc *service.Service, d serverDeps, onListening func(public, operator net.Addr)) (*httpserver.Server, error) {
+	cfg := svc.Config
+	health, err := svc.Health(d.limiting.checks...)
+	if err != nil {
 		return nil, err
 	}
 	return httpserver.New(httpserver.Options{
-		Logger: logger,
+		Logger: svc.Logger,
 		Public: httpserver.NewPublicHandler(httpserver.PublicDeps{
-			Logger:       logger,
+			Logger:       svc.Logger,
 			Auth:         d.auth,
 			Limiter:      d.limiting.limiter,
 			Limits:       limitsFrom(cfg.Limits),
 			Auditor:      d.auditor,
-			Telemetry:    d.inst,
+			Telemetry:    svc.Inst,
 			Health:       health,
 			MaxBodyBytes: cfg.HTTP.MaxBodyBytes,
 		}),
-		Operator:          httpserver.NewOperatorHandler(httpserver.OperatorDeps{Logger: logger, Telemetry: d.inst}),
+		Operator:          httpserver.NewOperatorHandler(httpserver.OperatorDeps{Logger: svc.Logger, Telemetry: svc.Inst}),
 		Health:            health,
 		PublicAddr:        cfg.HTTP.Addr,
 		OperatorAddr:      cfg.HTTP.OperatorAddr,
@@ -247,50 +197,4 @@ func limitsFrom(l config.RateLimits) httpserver.Limits {
 		Client:      perMinute(l.ClientPerMinute),
 		AuthFailure: perMinute(l.AuthFailuresPerMinute),
 	}
-}
-
-// newTelemetry builds the OpenTelemetry providers and the HTTP instrumentation from the configuration.
-func newTelemetry(ctx context.Context, cfg config.Config) (*telemetry.Telemetry, *httpserver.Instrumentation, error) {
-	tel, err := telemetry.New(ctx, telemetry.Options{
-		Service: "api", Version: cfg.App.Version, Env: string(cfg.App.Env),
-		Endpoint: cfg.Telemetry.Endpoint, SampleRatio: cfg.Telemetry.SampleRatio, MetricInterval: cfg.Telemetry.MetricInterval,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	metrics, err := telemetry.NewMetrics(tel.Meter())
-	if err != nil {
-		return nil, nil, err
-	}
-	return tel, &httpserver.Instrumentation{Tracer: tel.Tracer(), Propagator: telemetry.Propagator(), Metrics: metrics}, nil
-}
-
-// shutdownTelemetry flushes pending telemetry. It is bounded so an unreachable collector cannot delay the exit.
-func shutdownTelemetry(parent context.Context, tel *telemetry.Telemetry, logger *slog.Logger) {
-	// The parent is already cancelled when the API is stopping; the flush still needs a live context.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), telemetryShutdownTimeout)
-	defer cancel()
-	if err := tel.Shutdown(ctx); err != nil {
-		logger.WarnContext(ctx, "telemetry shutdown incomplete", "error", err)
-	}
-}
-
-// registerGauges exposes pool saturation, readiness and runtime statistics.
-func registerGauges(d serverDeps, health *httpserver.Health) error {
-	meter := d.tel.Meter()
-	if err := telemetry.RegisterPool(meter, func() telemetry.PoolStats {
-		s := d.pool.Stat()
-		return telemetry.PoolStats{
-			Acquired: s.AcquiredConns(), Idle: s.IdleConns(), Total: s.TotalConns(), Max: s.MaxConns(), EmptyAcquires: s.EmptyAcquireCount(),
-		}
-	}); err != nil {
-		return err
-	}
-	if err := telemetry.RegisterReadiness(meter, func(ctx context.Context) string {
-		state, _ := health.Readiness(ctx)
-		return state
-	}); err != nil {
-		return err
-	}
-	return telemetry.RegisterRuntime(meter)
 }
