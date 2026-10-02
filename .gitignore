@@ -59,3 +59,6 @@ vendor/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Database backups taken by hand (docs/operations/runbooks/db-restore.md): they contain key hashes and data
+/backups/

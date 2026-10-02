@@ -19,7 +19,7 @@ ADR-016 chooses API keys for machine clients and ADR-017 defines roles and a den
 
 **Revocation is immediate.** Nothing is cached between requests, so a revoked key stops working on its next request. Caching would trade this for speed and is a future decision with its own ADR if load requires it.
 
-**Lifetime and rotation.** `keyctl key issue` defaults to 90 days; `-ttl 0` issues a key that never expires and should be exceptional. Rotation is overlap: issue the new key, move the client over, revoke the old one. Rotating the pepper invalidates every key (all hashes change), so it is an incident response, not routine; a dual-pepper scheme is deferred until a need appears.
+**Lifetime and rotation.** `keyctl key issue` defaults to 90 days; `-ttl 0` issues a key that never expires and should be exceptional. Rotation is overlap: issue the new key, move the client over, revoke the old one (procedure: [key-rotation](../operations/runbooks/key-rotation.md)). Rotating the pepper invalidates every key (all hashes change), so it is an incident response, not routine; a dual-pepper scheme is deferred until a need appears.
 
 **Last use.** `last_used_at` is refreshed at most every five minutes per key, best effort: a failure is logged and never fails the request. The runtime role can update that single column and nothing else on `api_keys`.
 

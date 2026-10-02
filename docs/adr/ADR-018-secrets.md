@@ -27,4 +27,4 @@ No cloud vendor is chosen. All secrets are accessed through a `SecretStore` port
 gitignored env files / mounted files (never committed; `.env*` and `secrets/` in `.gitignore`). A cloud
 secret-manager adapter, workload identity and CI OIDC federation are added when a vendor is chosen (follow-up ADR).
 Unchanged: no secrets in git/images/logs/API responses, per-provider credential isolation, egress allow-list,
-secret scanning in CI and pre-commit, rotation runbook.
+secret scanning in CI and pre-commit, rotation runbook ([key-rotation](../operations/runbooks/key-rotation.md)).

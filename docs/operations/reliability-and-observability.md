@@ -75,7 +75,7 @@ outbox is transactional); worker crash mid-job (visibility timeout + idempotent 
 | IaC | entire env recreatable from Terraform + CI; secrets re-provisioned from secret manager backups |
 | Scenarios | AZ loss, region loss, DB corruption/bad migration, credential compromise, provider mass-failure, accidental deletion |
 | Drills | restore PITR into scratch env quarterly and measure RTO/RPO; "a backup never restored is not a backup" |
-| Runbooks | `docs/operations/runbooks/`: db-restore, provider-disable, key-rotation, queue-drain/replay, rollback, failover |
+| Runbooks | [`docs/operations/runbooks/`](runbooks/README.md): db-restore, provider-disable, key-rotation, queue-drain/replay, rollback, failover (the index says which exist and which are verified) |
 
 ## 5. Incident management
 
