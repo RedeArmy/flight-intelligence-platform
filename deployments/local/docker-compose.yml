@@ -6,7 +6,7 @@
 #   make test-db         start the throw-away test PostgreSQL (port 55432) and Redis (port 56379), loopback only, RAM-backed
 #
 # Profiles: services without a profile are the infrastructure (`dev`); `app` adds the containers built from this
-# repository; `tools` is the on-demand operator tool; `test` is the throw-away integration-test services. Every published port is bound to 127.0.0.1.
+# repository (migrations, API, worker); `tools` is the on-demand operator tool; `test` is the throw-away integration-test services. Every published port is bound to 127.0.0.1.
 #
 #   Jaeger UI    http://127.0.0.1:16686
 #   Prometheus   http://127.0.0.1:9090
@@ -183,6 +183,28 @@ services:
       otel-collector:
         condition: service_started
     # The health check is defined in the image: the binary probes itself, since the image has no shell or curl.
+
+  # Background worker (ADR-012). It runs no jobs yet; it proves the image, the health checks and the lifecycle. It has no
+  # published port: its probe listener is on loopback inside the container and the image's health check reads it.
+  worker:
+    profiles: ["app"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: worker
+    image: fip-worker:local
+    <<: *app-hardening
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      TELEMETRY_OTLP_ENDPOINT: http://otel-collector:4318
+    secrets:
+      - postgres_password
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
 
   # Throw-away database for integration tests. Trust authentication is acceptable only because it is bound to loopback,
   # holds no real data and lives in memory; it must never be reused for anything else.

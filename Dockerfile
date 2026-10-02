@@ -1,10 +1,12 @@
 # Container images for the Flight Intelligence Platform (ADR-034). One Dockerfile, one target per purpose:
 #
 #   api     the public HTTP API; contains no administration tool
+#   worker  the background worker; contains neither the API nor any administration tool
 #   tools   cmd/migrate and cmd/keyctl, used for one-off tasks (migrations, key administration)
 #
-#   docker build --target api   -t fip-api:local .
-#   docker build --target tools -t fip-tools:local .
+#   docker build --target api    -t fip-api:local .
+#   docker build --target worker -t fip-worker:local .
+#   docker build --target tools  -t fip-tools:local .
 #
 # Base images are pinned by digest so a build is reproducible and a moved tag cannot change what runs. The names are
 # written out in each FROM (not through ARG) because Dependabot's docker ecosystem only updates literal references.
@@ -23,6 +25,9 @@ FROM build AS build-api
 # -trimpath removes local paths from the binary; -s -w drop the symbol table and debug data.
 RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
+FROM build AS build-worker
+RUN go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
+
 FROM build AS build-tools
 RUN go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate \
  && go build -trimpath -ldflags="-s -w" -o /out/keyctl ./cmd/keyctl
@@ -39,6 +44,12 @@ EXPOSE 8080
 # The image has no shell or curl, so the binary probes itself: GET /healthz on the loopback address.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/api", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/api"]
+
+FROM runtime AS worker
+COPY --from=build-worker /out/worker /usr/local/bin/worker
+# The probe listener is on loopback (WORKER_HEALTH_ADDR) and nothing is published; the binary probes itself.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/worker", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/worker"]
 
 FROM runtime AS tools
 COPY --from=build-tools /out/migrate /usr/local/bin/migrate

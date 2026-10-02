@@ -84,6 +84,7 @@ switch ($Target) {
     "stack" { Invoke-Native go @("run", "./scripts/devsecrets"); Invoke-Native docker (Compose @("--profile", "app", "up", "-d", "--build", "--wait")) }
     "images" {
         Invoke-Native docker @("build", "--target", "api", "-t", "fip-api:local", ".")
+        Invoke-Native docker @("build", "--target", "worker", "-t", "fip-worker:local", ".")
         Invoke-Native docker @("build", "--target", "tools", "-t", "fip-tools:local", ".")
     }
     "keyctl" { Invoke-Native docker (Compose (@("--profile", "tools", "run", "--rm", "keyctl") + $Rest)) }

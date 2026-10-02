@@ -9,7 +9,7 @@
 Slice S6 of E1 packages the services and completes the local stack (ADR-025 amendment, ADR-028): everything runs on one machine through Docker Compose, with no cloud vendor. The images must be small, reproducible and safe to promote later, and the stack must let a developer see logs, traces and metrics (ADR-019, ADR-033) and prove that backups can be restored (ADR-023).
 
 ## Decision
-**One Dockerfile, one target per purpose.** `api` contains only the API. `tools` contains `cmd/migrate` and `cmd/keyctl`, used for one-off tasks. The API image has no administration tool, so a compromised API container cannot issue keys or change the schema even in principle (it also lacks the passwords, which are not mounted there). A `worker` target is added with the worker (S7).
+**One Dockerfile, one target per purpose.** `api` contains only the API. `worker` contains only the worker. `tools` contains `cmd/migrate` and `cmd/keyctl`, used for one-off tasks. The API image has no administration tool, so a compromised API container cannot issue keys or change the schema even in principle (it also lacks the passwords, which are not mounted there). The worker target arrived with the worker (ADR-035).
 
 **Build.** Multi-stage on `golang:1.27.1-alpine`, static binaries (`CGO_ENABLED=0`), `-trimpath` and stripped symbols, `GOTOOLCHAIN=local` so the build never downloads another Go (ADR-030), `-mod=readonly`. Dependencies are downloaded in their own layer so source changes do not refetch them. The build context excludes secrets, VCS data, build output and documentation (`.dockerignore`), so nothing sensitive can reach a layer.
 
@@ -19,7 +19,7 @@ Slice S6 of E1 packages the services and completes the local stack (ADR-025 amen
 
 **Container hardening in Compose.** The containers built here run with a read-only root filesystem (a `tmpfs` at `/tmp`), all capabilities dropped, `no-new-privileges`, and the unprivileged user. Secrets are Docker secrets mounted as files under `/run/secrets` and read by the same local secret store as on the host (`SECRETS_DIR`), never environment variables: `docker inspect` of the API container shows none. On a Linux host the files in `./secrets` are mode 0600 and owned by the developer, which a different user inside the container cannot read; `FIP_UID` and `FIP_GID` make the containers run as the developer.
 
-**Profiles.** Services without a profile are the infrastructure (`make dev`): PostgreSQL, Redis, the collector, Jaeger and Prometheus. Profile `app` adds the migration job and the API (`make stack`). Profile `tools` is the operator tool, run on demand (`make keyctl ARGS="key list"`). Profile `test` is the throw-away integration-test services. Every published port is bound to `127.0.0.1`.
+**Profiles.** Services without a profile are the infrastructure (`make dev`): PostgreSQL, Redis, the collector, Jaeger and Prometheus. Profile `app` adds the migration job, the API and the worker (`make stack`). Profile `tools` is the operator tool, run on demand (`make keyctl ARGS="key list"`). Profile `test` is the throw-away integration-test services. Every published port is bound to `127.0.0.1`.
 
 **Migrations stay a separate step.** The `migrate` job runs as the schema-owning role and exits; the API starts only after it succeeds and never migrates itself (ADR-031).
 

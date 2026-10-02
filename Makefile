@@ -33,7 +33,6 @@ COMPOSE := docker compose -f deployments/local/docker-compose.yml
 
 help: ## List targets
 	@echo Targets: setup hooks tools fmt vet lint workflows generate openapi run local-secrets dev dev-down stack images keyctl restore-drill db-up db-down test-db test-db-down migrate migration-check test test-race integration coverage coverage-integration arch security vuln sast secrets build ci
-	@echo Planned (added by later E1 slices): worker image and service
 
 setup: tools hooks ## Install pinned tools and enable git hooks
 
@@ -94,8 +93,9 @@ dev-down: ## Stop the local infrastructure and the app containers (data volumes 
 stack: local-secrets ## Build and start everything: the infrastructure, the migrations and the API in containers
 	$(COMPOSE) --profile app up -d --build --wait
 
-images: ## Build the container images (api and tools)
+images: ## Build the container images (api, worker and tools)
 	docker build --target api -t fip-api:local .
+	docker build --target worker -t fip-worker:local .
 	docker build --target tools -t fip-tools:local .
 
 keyctl: ## Run the operator tool in a container, for example: make keyctl ARGS="key list"
