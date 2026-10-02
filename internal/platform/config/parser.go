@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,6 +141,31 @@ func (p *parser) int64(key string, def, minValue, maxValue int64) int64 {
 		return 0
 	}
 	return n
+}
+
+// optionalURL returns an http or https URL with a host, or "" when the key is not set.
+func (p *parser) optionalURL(key string) string {
+	v, ok := p.raw(key)
+	if !ok {
+		return ""
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		p.fail(key, "must be an http or https URL without credentials, for example http://localhost:4318")
+		return ""
+	}
+	return v
+}
+
+// ratio parses a number between 0 and 1.
+func (p *parser) ratio(key string, def float64) float64 {
+	v, _ := p.value(key, strconv.FormatFloat(def, 'f', -1, 64))
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(f) || f < 0 || f > 1 {
+		p.fail(key, "must be a number between 0 and 1")
+		return 0
+	}
+	return f
 }
 
 // optionalAddr is addr for a key that may be left unset: it returns "" when the key is not set.

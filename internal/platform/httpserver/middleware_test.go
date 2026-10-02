@@ -16,7 +16,7 @@ import (
 
 // chainFor builds the base chain with a few probe routes.
 func chainFor(tl *testLog, limit int64) *chi.Mux {
-	r := newBaseRouter(tl.Logger)
+	r := newBaseRouter(tl.Logger, nil)
 	if limit > 0 {
 		r.Use(bodyLimit(limit))
 	}

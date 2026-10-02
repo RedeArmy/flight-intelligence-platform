@@ -9,6 +9,7 @@ package config
 import (
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -32,13 +33,22 @@ func (e Env) AllowsLocalFeatures() bool { return e == EnvLocal || e == EnvTest }
 
 // Config is the complete runtime configuration. Later E1 slices add Redis, auth and telemetry groups.
 type Config struct {
-	App      App
-	Log      Log
-	HTTP     HTTP
-	Postgres Postgres
-	Redis    Redis
-	Limits   RateLimits
-	Secrets  Secrets
+	App       App
+	Log       Log
+	HTTP      HTTP
+	Postgres  Postgres
+	Redis     Redis
+	Limits    RateLimits
+	Telemetry Telemetry
+	Secrets   Secrets
+}
+
+// Telemetry configures OpenTelemetry export (ADR-019, ADR-033). Without an endpoint nothing is exported, but spans
+// are still created so logs carry trace IDs.
+type Telemetry struct {
+	Endpoint       string        // OTLP/HTTP base URL of the collector, for example http://localhost:4318; empty disables export
+	SampleRatio    float64       // fraction of new traces recorded, 0 to 1
+	MetricInterval time.Duration // how often metrics are exported
 }
 
 // Redis configures the optional Redis connection (ADR-004). Redis holds ephemeral state only; without it the API
@@ -136,11 +146,12 @@ func build(p *parser) Config {
 			Level:  p.enum("LOG_LEVEL", "info", "debug", "info", "warn", "error"),
 			Format: p.enum("LOG_FORMAT", "json", "json", "text"),
 		},
-		HTTP:     buildHTTP(p),
-		Postgres: buildPostgres(p),
-		Redis:    buildRedis(p),
-		Limits:   buildLimits(p),
-		Secrets:  Secrets{Dir: p.optional("SECRETS_DIR")},
+		HTTP:      buildHTTP(p),
+		Postgres:  buildPostgres(p),
+		Redis:     buildRedis(p),
+		Limits:    buildLimits(p),
+		Telemetry: buildTelemetry(p),
+		Secrets:   Secrets{Dir: p.optional("SECRETS_DIR")},
 	}
 }
 
@@ -165,6 +176,14 @@ func buildRedis(p *parser) Redis {
 		Addr:    p.optionalAddr("REDIS_ADDR"),
 		TLS:     p.enum("REDIS_TLS", "true", "true", "false") == "true",
 		Timeout: p.duration("REDIS_TIMEOUT", 100*time.Millisecond),
+	}
+}
+
+func buildTelemetry(p *parser) Telemetry {
+	return Telemetry{
+		Endpoint:       p.optionalURL("TELEMETRY_OTLP_ENDPOINT"),
+		SampleRatio:    p.ratio("TELEMETRY_SAMPLE_RATIO", 1),
+		MetricInterval: p.duration("TELEMETRY_METRIC_INTERVAL", 15*time.Second),
 	}
 }
 
@@ -205,6 +224,9 @@ func validateCross(p *parser, cfg Config) {
 		p.fail("HTTP_READ_HEADER_TIMEOUT", "must not exceed HTTP_READ_TIMEOUT")
 	}
 	validatePostgres(p, cfg)
+	if cfg.Telemetry.Endpoint != "" && !strings.HasPrefix(cfg.Telemetry.Endpoint, "https://") && cfg.App.Env.IsProductionLike() {
+		p.fail("TELEMETRY_OTLP_ENDPOINT", "must use https in staging and production")
+	}
 	if cfg.Redis.Addr != "" && !cfg.Redis.TLS && cfg.App.Env.IsProductionLike() {
 		p.fail("REDIS_TLS", "must be true in staging and production")
 	}

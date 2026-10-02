@@ -53,6 +53,15 @@ Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 
 Limits are token buckets: the number is both the burst size and the average per minute.
 
+## Telemetry
+| Key | Type | Default | Required | Meaning |
+|-----|------|---------|----------|---------|
+| `TELEMETRY_OTLP_ENDPOINT` | http(s) URL | empty | no | Base URL of the OpenTelemetry collector's OTLP/HTTP receiver, for example `http://localhost:4318` (ADR-033). Empty means nothing is exported; spans are still created so logs carry `trace_id`. Must be `https` in staging and production. |
+| `TELEMETRY_SAMPLE_RATIO` | number 0 to 1 | `1` | no | Fraction of requests whose trace is recorded. Local default records all; the collector's tail sampling keeps errors and slow requests. |
+| `TELEMETRY_METRIC_INTERVAL` | duration | `15s` | no | How often metrics are exported. |
+
+The OpenTelemetry SDK also reads its own `OTEL_*` environment variables (for example `OTEL_EXPORTER_OTLP_HEADERS`). The `TELEMETRY_*` keys above are the supported configuration; do not rely on `OTEL_*`.
+
 ## Secrets (secret store, never configuration)
 | Secret | Read by | Purpose |
 |--------|---------|---------|

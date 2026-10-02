@@ -19,17 +19,18 @@ type PublicDeps struct {
 	Auditor      Auditor // nil disables auditing of authorisation denials (tests only)
 	Health       *Health
 	MaxBodyBytes int64
+	Telemetry    *Instrumentation // nil disables traces and metrics (tests only)
 }
 
 // NewPublicHandler builds the public API handler from the OpenAPI contract. The middleware order is:
-// request ID, access log, panic recovery, security headers, body limit, then per route the access policy.
+// request ID, tracing, access log, panic recovery, security headers, body limit, then per route the access policy.
 // Access log sits outside recovery so a recovered panic is logged as a 500.
 func NewPublicHandler(d PublicDeps) http.Handler {
 	auth := d.Auth
 	if auth == nil {
 		auth = DenyAll{}
 	}
-	r := newBaseRouter(d.Logger)
+	r := newBaseRouter(d.Logger, d.Telemetry)
 	r.Use(bodyLimit(d.MaxBodyBytes))
 
 	strict := openapi.NewStrictHandlerWithOptions(&api{health: d.Health}, nil, openapi.StrictHTTPServerOptions{
@@ -38,7 +39,7 @@ func NewPublicHandler(d PublicDeps) http.Handler {
 	})
 	openapi.HandlerWithOptions(strict, openapi.ChiServerOptions{
 		BaseRouter:       r,
-		Middlewares:      []openapi.MiddlewareFunc{enforcePolicy(guard{auth: auth, limiter: d.Limiter, limits: d.Limits, auditor: d.Auditor})},
+		Middlewares:      []openapi.MiddlewareFunc{enforcePolicy(guard{auth: auth, limiter: d.Limiter, limits: d.Limits, auditor: d.Auditor, metrics: d.Telemetry.metrics()})},
 		ErrorHandlerFunc: badRequest,
 	})
 	return r
@@ -46,7 +47,8 @@ func NewPublicHandler(d PublicDeps) http.Handler {
 
 // OperatorDeps are the dependencies of the operator handler.
 type OperatorDeps struct {
-	Logger *slog.Logger
+	Logger    *slog.Logger
+	Telemetry *Instrumentation // nil disables traces and metrics
 	// Routes registers operator-only routes (metrics, admin). Nil registers none.
 	Routes func(chi.Router)
 }
@@ -54,16 +56,17 @@ type OperatorDeps struct {
 // NewOperatorHandler builds the handler for the operator listener. It shares the base chain but serves none of the
 // public routes, so operator routes can never be reached through the public port (SR-21).
 func NewOperatorHandler(d OperatorDeps) http.Handler {
-	r := newBaseRouter(d.Logger)
+	r := newBaseRouter(d.Logger, d.Telemetry)
 	if d.Routes != nil {
 		d.Routes(r)
 	}
 	return r
 }
 
-func newBaseRouter(logger *slog.Logger) *chi.Mux {
+func newBaseRouter(logger *slog.Logger, in *Instrumentation) *chi.Mux {
 	r := chi.NewRouter()
-	r.Use(requestID(logger), accessLog, recoverer, securityHeaders)
+	// Tracing sits after the request ID (so spans carry it) and before the access log (so log lines carry the trace ID).
+	r.Use(requestID(logger), tracing(in), accessLog, recoverer, securityHeaders)
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		WriteError(w, req, sharederrors.NotFound(sharederrors.CodeNotFound, "resource not found"))
 	})

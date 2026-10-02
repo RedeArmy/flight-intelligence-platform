@@ -42,10 +42,11 @@ type KeyStore interface {
 
 // Authenticator resolves the bearer API key of a request to a principal.
 type Authenticator struct {
-	store  KeyStore
-	hasher *security.KeyHasher
-	clock  clock.Nower
-	logger *slog.Logger
+	store     KeyStore
+	hasher    *security.KeyHasher
+	clock     clock.Nower
+	logger    *slog.Logger
+	onFailure func(ctx context.Context, reasonClass string)
 	// decoy is compared against when the prefix is unknown, so unknown and wrong keys cost the same (SR-23).
 	decoy []byte
 }
@@ -57,17 +58,39 @@ func New(store KeyStore, hasher *security.KeyHasher, now clock.Nower, logger *sl
 	return &Authenticator{store: store, hasher: hasher, clock: now, logger: logger, decoy: hasher.Hash("decoy")}
 }
 
+// Failure classes reported to the observer: a short fixed vocabulary, safe as a metric label.
+const (
+	ClassMissing            = "missing"
+	ClassMalformed          = "malformed"
+	ClassInvalidCredentials = "invalid_credentials" // #nosec G101 -- a metric label, not a credential
+	ClassInactive           = "inactive"            // revoked, expired or owned by a disabled client
+)
+
+// WithFailureObserver registers a function called for every failed authentication with its failure class, for
+// metrics. It never receives the reason text or any key material.
+func (a *Authenticator) WithFailureObserver(fn func(ctx context.Context, reasonClass string)) *Authenticator {
+	a.onFailure = fn
+	return a
+}
+
+func (a *Authenticator) observe(ctx context.Context, class string) {
+	if a.onFailure != nil {
+		a.onFailure(ctx, class)
+	}
+}
+
 // Authenticate implements httpserver.Authenticator. Every credential problem (missing, malformed, unknown,
 // wrong, expired, revoked, inactive client) returns the same ErrUnauthenticated; the reason goes to the log only.
 func (a *Authenticator) Authenticate(r *http.Request) (httpserver.Principal, error) {
 	ctx := r.Context()
 	token, ok := httpserver.BearerToken(r)
 	if !ok {
+		a.observe(ctx, ClassMissing)
 		return httpserver.Principal{}, httpserver.ErrUnauthenticated
 	}
 	prefix, keySecret, err := security.ParseKey(token)
 	if err != nil {
-		a.reject(ctx, "malformed", "")
+		a.reject(ctx, "malformed", "", ClassMalformed)
 		return httpserver.Principal{}, httpserver.ErrUnauthenticated
 	}
 
@@ -82,12 +105,12 @@ func (a *Authenticator) Authenticate(r *http.Request) (httpserver.Principal, err
 	}
 	secretMatches := a.hasher.Matches(stored, keySecret)
 	if !found || !secretMatches {
-		a.reject(ctx, "unknown_or_wrong", prefix)
+		a.reject(ctx, "unknown_or_wrong", prefix, ClassInvalidCredentials)
 		return httpserver.Principal{}, httpserver.ErrUnauthenticated
 	}
 	now := a.clock.Now()
 	if reason := inactiveReason(rec, now); reason != "" {
-		a.reject(ctx, reason, prefix)
+		a.reject(ctx, reason, prefix, ClassInactive)
 		return httpserver.Principal{}, httpserver.ErrUnauthenticated
 	}
 
@@ -108,7 +131,8 @@ func inactiveReason(rec KeyRecord, now time.Time) string {
 }
 
 // reject records why authentication failed. The prefix is a public identifier, never the secret.
-func (a *Authenticator) reject(ctx context.Context, reason, prefix string) {
+func (a *Authenticator) reject(ctx context.Context, reason, prefix, class string) {
+	a.observe(ctx, class)
 	a.logger.WarnContext(ctx, "authentication failed", "reason", reason, "key_prefix", prefix)
 }
 

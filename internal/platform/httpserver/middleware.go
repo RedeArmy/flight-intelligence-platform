@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
@@ -74,10 +73,7 @@ func accessLog(next http.Handler) http.Handler {
 		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
-		route := "unmatched"
-		if rc := chi.RouteContext(r.Context()); rc != nil && rc.RoutePattern() != "" {
-			route = rc.RoutePattern()
-		}
+		route := routeTemplate(r)
 		status := ww.Status()
 		if status == 0 {
 			status = http.StatusOK
