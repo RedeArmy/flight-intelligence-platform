@@ -16,6 +16,16 @@ On Windows without `make`, use `.\scripts\dev.ps1 <target>`. Docker is required.
 vulnerability database and builds three images, so it takes several minutes; later runs reuse the `fip-trivy-cache`
 Docker volume. `dist/` is git-ignored (only `dist/.gitkeep` is tracked).
 
+## Repository settings these jobs need
+These are settings of the GitHub repository, not files; the workflow cannot change them, and a job fails if one is missing.
+
+| Setting (Settings, Code security) | Needed by | Symptom when missing |
+|-----------------------------------|-----------|----------------------|
+| **Dependency graph** enabled | `dependency-review` | `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled` |
+| **CodeQL default setup** turned off | `codeql` | results from the workflow are rejected: "advanced configuration cannot be processed when default setup is enabled" |
+
+The dependency graph is free for public repositories. Enable it once; it also feeds Dependabot alerts.
+
 ## What the scan covers
 - The base image's operating-system packages (Debian, from the distroless image).
 - The Go modules compiled into each binary, read from the binary itself. This finds vulnerable dependencies that
@@ -37,11 +47,11 @@ Docker volume. `dist/` is git-ignored (only `dist/.gitkeep` is tracked).
 
 ## The other checks of this slice
 - **dependency-review** runs on pull requests only. It blocks a pull request that adds or updates a dependency with a HIGH or
-  CRITICAL vulnerability, including GitHub Actions. It is skipped on pushes to `main`; `ci-gate` accepts that.
+  CRITICAL vulnerability, including GitHub Actions. It needs the **Dependency graph** to be enabled (see above). It is
+  skipped on pushes to `main`; `ci-gate` accepts that.
 - **codeql** analyses the Go code with the `security-extended` queries and uploads the results to the repository's Security
-  tab. It needs `security-events: write`, so it is skipped for pull requests from forks (like `sonar`). If the repository has
-  CodeQL *default setup* enabled in its settings, GitHub rejects results from this workflow ("advanced configuration cannot
-  be processed when default setup is enabled"): turn the default setup off (Settings, Code security).
+  tab. It needs `security-events: write`, so it is skipped for pull requests from forks (like `sonar`). It also needs the
+  CodeQL *default setup* to be off (see above).
 - **Caches:** `setup-go` caches the module download and the build output, keyed on `go.sum`.
 
 ## SBOMs

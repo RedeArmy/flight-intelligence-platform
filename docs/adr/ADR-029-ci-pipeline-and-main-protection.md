@@ -51,4 +51,6 @@ Three jobs join `ci-gate`, and the caches are enabled.
   cancellation of any job still blocks the merge, and a skipped required job (`images` and the others) blocks it too.
 - Third-party actions are pinned by commit SHA (CodeQL's release tag is annotated, so the commit behind the tag was pinned,
   not the tag object). `setup-go` caches modules and builds keyed on `go.sum`.
+- `dependency-review` needs the repository's **Dependency graph** enabled and `codeql` needs CodeQL's *default setup* off; both
+  are repository settings that a workflow cannot change, so they are listed as prerequisites in the operations document.
 See `docs/operations/container-ci.md`.
