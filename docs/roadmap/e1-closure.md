@@ -115,6 +115,10 @@ design plan and open questions, as E1 did. Questions to settle in it, as a start
 
 ## 7. Sign-off
 
-- [ ] Owner confirms the exit criteria (section 1) and the deferred list (section 5).
-- [ ] Owner takes the two repository actions of section 5.
-- [ ] E2 design plan started.
+Signed on 2026-10-02 by the owner, after the review in [e1-engineering-review.md](e1-engineering-review.md).
+
+- [x] Owner confirms the exit criteria (section 1) and the deferred list (section 5).
+- [x] Owner takes the two repository actions of section 5 (verified on 2026-10-02: `dependency-review` succeeded on the PR #18 head and `codeql` succeeded on `main`).
+- [ ] E2 design plan started. Left open on purpose: it has not started. It is the first E2 step.
+
+The review findings R-1 to R-7 are fixed in the same branch (see section 3 of the review). Open from it: R-8 (known gaps) and R-9 (independent review), plus the public `/readyz` body that still names its dependencies.

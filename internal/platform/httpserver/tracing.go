@@ -34,7 +34,14 @@ func (in *Instrumentation) metrics() *telemetry.Metrics {
 // unmatchedRoute names requests that matched no route, so unknown paths cannot create unbounded label values.
 const unmatchedRoute = "unmatched"
 
-// tracing records one server span and the request metrics for every request.
+// isProbe reports whether the request is a liveness or readiness probe. Probes are not user traffic: an orchestrator
+// sends one every few seconds, so tracing them fills the trace store and the request metrics with noise, and the SLO
+// rules and the dashboard already exclude their routes. The readiness state is exported by its own gauge.
+func isProbe(r *http.Request) bool {
+	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/readyz")
+}
+
+// tracing records one server span and the request metrics for every request except probes.
 //
 // The span is a NEW ROOT even when the request carries a traceparent: the caller's trace is attached as a link
 // instead of becoming the parent. Public callers are untrusted, and a parent decision would let them force sampling
@@ -46,6 +53,10 @@ func tracing(in *Instrumentation) func(http.Handler) http.Handler {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isProbe(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			start := time.Now()
 			ctx, span := in.Tracer.Start(r.Context(), "HTTP "+r.Method, in.spanOptions(r)...)
 			in.Metrics.RequestStarted(ctx)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver/openapi"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
 )
@@ -19,12 +20,12 @@ import (
 var errBoom = errors.New("backend exploded")
 
 type fakeAuth struct {
-	principal Principal
+	principal access.Principal
 	err       error
 	calls     int
 }
 
-func (f *fakeAuth) Authenticate(*http.Request) (Principal, error) {
+func (f *fakeAuth) Authenticate(*http.Request) (access.Principal, error) {
 	f.calls++
 	return f.principal, f.err
 }
@@ -37,7 +38,7 @@ func publicHandler(tl *testLog, auth Authenticator, health *Health) http.Handler
 }
 
 func TestWhoamiReturnsTheAuthenticatedPrincipal(t *testing.T) {
-	auth := &fakeAuth{principal: Principal{ClientID: "client-1", Role: RoleDeveloper}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "client-1", Role: access.RoleDeveloper}}
 	rec := doReq(publicHandler(newTestLog(t), auth, nil), http.MethodGet, "/v1/whoami",
 		withHeader("Authorization", "Bearer whatever"), withHeader("X-Request-Id", "req-whoami-001"))
 
@@ -96,20 +97,20 @@ func TestAuthenticationFailuresAreMappedByKind(t *testing.T) {
 }
 
 func TestRoleWithoutPermissionIsForbidden(t *testing.T) {
-	auth := &fakeAuth{principal: Principal{ClientID: "c", Role: Role("GUEST")}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.Role("GUEST")}}
 	rec := doReq(publicHandler(newTestLog(t), auth, nil), http.MethodGet, "/v1/whoami")
 	if rec.Code != http.StatusForbidden || decodeError(t, rec).Code != sharederrors.CodeForbidden {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
 	}
-	empty := &fakeAuth{principal: Principal{ClientID: "c"}}
+	empty := &fakeAuth{principal: access.Principal{ClientID: "c"}}
 	if rec := doReq(publicHandler(newTestLog(t), empty, nil), http.MethodGet, "/v1/whoami"); rec.Code != http.StatusForbidden {
 		t.Fatalf("a principal with no role must be forbidden, got %d", rec.Code)
 	}
 }
 
 func TestEveryRoleMayCallWhoami(t *testing.T) {
-	for _, role := range []Role{RoleUser, RoleDeveloper, RoleOperator, RoleAdmin, RoleService} {
-		auth := &fakeAuth{principal: Principal{ClientID: "c", Role: role}}
+	for _, role := range []access.Role{access.RoleUser, access.RoleDeveloper, access.RoleOperator, access.RoleAdmin, access.RoleService} {
+		auth := &fakeAuth{principal: access.Principal{ClientID: "c", Role: role}}
 		if rec := doReq(publicHandler(newTestLog(t), auth, nil), http.MethodGet, "/v1/whoami"); rec.Code != http.StatusOK {
 			t.Errorf("role %s: status %d", role, rec.Code)
 		}
@@ -173,7 +174,7 @@ func TestUnknownRoutesAndMethodsOnThePublicAPI(t *testing.T) {
 func TestCredentialsNeverReachTheLogs(t *testing.T) {
 	tl := newTestLog(t)
 	const key = "fip_abcd1234_zzzzzzzzzzzzzzzzzzzzzzzz"
-	auth := &fakeAuth{principal: Principal{ClientID: "client-1", Role: RoleAdmin}}
+	auth := &fakeAuth{principal: access.Principal{ClientID: "client-1", Role: access.RoleAdmin}}
 	doReq(publicHandler(tl, auth, nil), http.MethodGet, "/v1/whoami", withHeader("Authorization", "Bearer "+key))
 	doReq(publicHandler(tl, nil, nil), http.MethodGet, "/v1/whoami", withHeader("Authorization", "Bearer "+key))
 	if strings.Contains(tl.Raw(), key) || strings.Contains(tl.Raw(), "zzzzzzzzzz") {
@@ -185,7 +186,7 @@ func TestRoutesWithoutAPolicyAreRefused(t *testing.T) {
 	tl := newTestLog(t)
 	r := newBaseRouter(tl.Logger, nil)
 	called := false
-	r.With(enforcePolicy(guard{auth: &fakeAuth{principal: Principal{ClientID: "c", Role: RoleAdmin}}})).
+	r.With(enforcePolicy(guard{auth: &fakeAuth{principal: access.Principal{ClientID: "c", Role: access.RoleAdmin}}})).
 		Get("/v1/unlisted", func(http.ResponseWriter, *http.Request) { called = true })
 
 	rec := doReq(r, http.MethodGet, "/v1/unlisted")

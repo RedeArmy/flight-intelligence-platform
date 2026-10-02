@@ -17,10 +17,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/cli"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 )
@@ -137,7 +137,7 @@ func run(ctx context.Context, args []string, o runOptions) error {
 func execute(ctx context.Context, admin *apiauth.Admin, cmd command, out io.Writer) error {
 	switch cmd.name {
 	case cmdClientCreate:
-		c, err := admin.CreateClient(ctx, cmd.client, httpserver.Role(cmd.role))
+		c, err := admin.CreateClient(ctx, cmd.client, access.Role(cmd.role))
 		if err != nil {
 			return err
 		}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
@@ -82,7 +83,7 @@ func TestAuthenticateAcceptsAValidKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ClientID != "client-1" || p.Role != httpserver.RoleDeveloper {
+	if p.ClientID != "client-1" || p.Role != access.RoleDeveloper {
 		t.Fatalf("principal = %+v", p)
 	}
 }

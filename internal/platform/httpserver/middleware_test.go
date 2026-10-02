@@ -190,3 +190,20 @@ func TestNotFoundAndMethodNotAllowedUseTheErrorEnvelope(t *testing.T) {
 		t.Error("error envelopes must carry the request id")
 	}
 }
+
+func TestLimiterAddrAggregatesIPv6ByNetwork(t *testing.T) {
+	cases := map[string]string{
+		"198.51.100.7:4000":                     "198.51.100.7",
+		"[::ffff:198.51.100.7]:4000":            "198.51.100.7",
+		"[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:80": "2001:db8:1:2::/64",
+		"[2001:db8:1:2:1111:2222:3333:4444]:81": "2001:db8:1:2::/64",
+		"[2001:db8:1:3::1]:80":                  "2001:db8:1:3::/64",
+		"[fe80::1%eth0]:80":                     "fe80::/64",
+		"not-an-address":                        "not-an-address",
+	}
+	for in, want := range cases {
+		if got := limiterAddr(in); got != want {
+			t.Errorf("limiterAddr(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

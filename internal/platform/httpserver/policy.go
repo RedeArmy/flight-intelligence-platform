@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/telemetry"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/ratelimit"
@@ -17,7 +18,7 @@ import (
 // routePolicy says who may call a route. Either public, or a permission the caller's role must grant.
 type routePolicy struct {
 	public     bool
-	permission Permission
+	permission access.Permission
 	opClass    string // rate-limit class: read, search or verify; empty means read
 }
 
@@ -39,7 +40,7 @@ func (p routePolicy) class() string {
 var routePolicies = map[string]routePolicy{
 	"GET /healthz":   {public: true},
 	"GET /readyz":    {public: true},
-	"GET /v1/whoami": {permission: PermWhoamiRead},
+	"GET /v1/whoami": {permission: access.PermWhoamiRead},
 }
 
 // CodeRoutePolicyMissing marks a route that was registered without a policy (a programming error).
@@ -120,35 +121,37 @@ func enforcePolicy(g guard) func(http.Handler) http.Handler {
 				writeDenied(w, r, err)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), principal)))
+			next.ServeHTTP(w, r.WithContext(access.WithPrincipal(r.Context(), principal)))
 		})
 	}
 }
 
 // protect runs the checks of a protected route in order: address limit, failed-authentication limit (checked before
-// the key is verified, so guessing is throttled), authentication, authorisation, then the client limit.
-func (g guard) protect(r *http.Request, policy routePolicy) (Principal, error) {
+// the key is verified, so guessing is throttled), authentication, the client limit, then authorisation. The client
+// limit comes before authorisation so that a caller probing routes it may not use cannot make the audit trail grow
+// faster than its own rate limit allows.
+func (g guard) protect(r *http.Request, policy routePolicy) (access.Principal, error) {
 	ctx := r.Context()
-	ip := remoteHost(r.RemoteAddr)
+	ip := limiterAddr(r.RemoteAddr)
 	if err := g.take(ctx, limitIP, "ip:"+ip, g.limits.IP, 1); err != nil {
-		return Principal{}, err
+		return access.Principal{}, err
 	}
 	if err := g.take(ctx, limitAuthFailure, "authfail:"+ip, g.limits.AuthFailure, 0); err != nil {
-		return Principal{}, err
+		return access.Principal{}, err
 	}
 	principal, err := g.auth.Authenticate(r)
 	if err != nil {
 		if sharederrors.KindOf(err) == sharederrors.KindUnauthenticated {
 			g.chargeFailure(ctx, "authfail:"+ip)
 		}
-		return Principal{}, err
+		return access.Principal{}, err
+	}
+	if err := g.take(ctx, limitClient, "client:"+principal.ClientID+":"+policy.class(), g.limits.Client, 1); err != nil {
+		return access.Principal{}, err
 	}
 	if !principal.Role.Can(policy.permission) {
 		g.auditDenied(r, principal)
-		return Principal{}, ErrForbidden
-	}
-	if err := g.take(ctx, limitClient, "client:"+principal.ClientID+":"+policy.class(), g.limits.Client, 1); err != nil {
-		return Principal{}, err
+		return access.Principal{}, ErrForbidden
 	}
 	return principal, nil
 }
@@ -184,7 +187,7 @@ func (g guard) chargeFailure(ctx context.Context, key string) {
 	}
 }
 
-func (g guard) auditDenied(r *http.Request, p Principal) {
+func (g guard) auditDenied(r *http.Request, p access.Principal) {
 	if g.auditor == nil {
 		return
 	}

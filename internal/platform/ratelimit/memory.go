@@ -90,11 +90,36 @@ func (m *Memory) maintain(now time.Time) {
 		}
 	}
 	for len(m.buckets) >= m.maxKeys {
-		for k := range m.buckets { // map order is random: evicts an arbitrary bucket
-			delete(m.buckets, k)
+		m.evictOne(now)
+	}
+}
+
+// evictSample is how many buckets evictOne compares. Sampling keeps eviction O(1) under a flood of distinct keys.
+const evictSample = 16
+
+// evictOne removes the fullest bucket of a small sample: a nearly full bucket is the cheapest to forget, because a
+// new bucket for the same key starts full too. Map iteration order is random, so the sample is random.
+// The caller holds m.mu.
+func (m *Memory) evictOne(now time.Time) {
+	var (
+		victim string
+		best   = -1.0
+		seen   int
+	)
+	for k, b := range m.buckets {
+		if level := b.level(now); level > best {
+			victim, best = k, level
+		}
+		if seen++; seen == evictSample {
 			break
 		}
 	}
+	delete(m.buckets, victim)
+}
+
+// level is the fraction of the bucket that is full, in [0, 1].
+func (b *bucket) level(now time.Time) float64 {
+	return math.Min(1, (b.tokens+float64(now.Sub(b.updated))*b.limit/float64(b.window))/b.limit)
 }
 
 func full(b *bucket, now time.Time) bool {

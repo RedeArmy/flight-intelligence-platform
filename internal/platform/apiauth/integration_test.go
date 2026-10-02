@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/apiauth"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database/dbtest"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
@@ -64,7 +64,7 @@ func newRig(t *testing.T) *rig {
 	}
 }
 
-func (r *rig) authenticate(token string) (httpserver.Principal, error) {
+func (r *rig) authenticate(token string) (access.Principal, error) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return r.auth.Authenticate(req)
@@ -97,7 +97,7 @@ func TestIssuedKeyAuthenticatesAndExpires(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	ctx := context.Background()
-	client, err := r.admin.CreateClient(ctx, "svc-a", httpserver.RoleService)
+	client, err := r.admin.CreateClient(ctx, "svc-a", access.RoleService)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestIssuedKeyAuthenticatesAndExpires(t *testing.T) {
 	}
 
 	p, err := r.authenticate(key.Token.Reveal())
-	if err != nil || p.ClientID != client.ID || p.Role != httpserver.RoleService {
+	if err != nil || p.ClientID != client.ID || p.Role != access.RoleService {
 		t.Fatalf("principal = %+v, err = %v", p, err)
 	}
 
@@ -121,7 +121,7 @@ func TestRevokedKeyStopsWorkingAndRevokingTwiceKeepsTheFirstTime(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.admin.CreateClient(ctx, "svc-b", httpserver.RoleDeveloper); err != nil {
+	if _, err := r.admin.CreateClient(ctx, "svc-b", access.RoleDeveloper); err != nil {
 		t.Fatal(err)
 	}
 	key, err := r.admin.IssueKey(ctx, "svc-b", 0)
@@ -153,7 +153,7 @@ func TestInactiveClientCannotAuthenticate(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.admin.CreateClient(ctx, "svc-c", httpserver.RoleDeveloper); err != nil {
+	if _, err := r.admin.CreateClient(ctx, "svc-c", access.RoleDeveloper); err != nil {
 		t.Fatal(err)
 	}
 	key, err := r.admin.IssueKey(ctx, "svc-c", 0)
@@ -170,7 +170,7 @@ func TestEveryChangeWritesAnAuditEventAndNeverTheSecret(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.admin.CreateClient(ctx, "svc-d", httpserver.RoleAdmin); err != nil {
+	if _, err := r.admin.CreateClient(ctx, "svc-d", access.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	key, err := r.admin.IssueKey(ctx, "svc-d", time.Hour)
@@ -195,10 +195,10 @@ func TestAdminErrors(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.admin.CreateClient(ctx, "dup", httpserver.RoleUser); err != nil {
+	if _, err := r.admin.CreateClient(ctx, "dup", access.RoleUser); err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string, role httpserver.Role) func() error {
+	create := func(name string, role access.Role) func() error {
 		return func() error { _, err := r.admin.CreateClient(ctx, name, role); return err }
 	}
 	issue := func(name string, ttl time.Duration) func() error {
@@ -209,10 +209,10 @@ func TestAdminErrors(t *testing.T) {
 		do   func() error
 		code string
 	}{
-		{"duplicate client", create("dup", httpserver.RoleUser), apiauth.CodeClientExists},
-		{"empty name", create("", httpserver.RoleUser), apiauth.CodeInvalidName},
-		{"long name", create(strings.Repeat("x", 129), httpserver.RoleUser), apiauth.CodeInvalidName},
-		{"unknown role", create("x", httpserver.Role("ROOT")), apiauth.CodeInvalidRole},
+		{"duplicate client", create("dup", access.RoleUser), apiauth.CodeClientExists},
+		{"empty name", create("", access.RoleUser), apiauth.CodeInvalidName},
+		{"long name", create(strings.Repeat("x", 129), access.RoleUser), apiauth.CodeInvalidName},
+		{"unknown role", create("x", access.Role("ROOT")), apiauth.CodeInvalidRole},
 		{"key for unknown client", issue("nobody", 0), apiauth.CodeClientNotFound},
 		{"negative ttl", issue("dup", -time.Second), apiauth.CodeInvalidTTL},
 		{"revoke unknown prefix", func() error { return r.admin.RevokeKey(ctx, "Zzzzzzzz") }, apiauth.CodeKeyNotFound},

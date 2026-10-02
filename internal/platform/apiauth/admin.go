@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/database"
-	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/security"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/shared/clock"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
@@ -42,9 +42,9 @@ const (
 	actorKeyctl   = "keyctl"
 )
 
-var validRoles = map[httpserver.Role]bool{
-	httpserver.RoleUser: true, httpserver.RoleDeveloper: true, httpserver.RoleOperator: true,
-	httpserver.RoleAdmin: true, httpserver.RoleService: true,
+var validRoles = map[access.Role]bool{
+	access.RoleUser: true, access.RoleDeveloper: true, access.RoleOperator: true,
+	access.RoleAdmin: true, access.RoleService: true,
 }
 
 // TxRunner runs fn in a transaction. *database.Pool implements it.
@@ -73,7 +73,7 @@ func (a *Admin) WithEntropy(r io.Reader) *Admin { a.entropy = r; return a }
 type Client struct {
 	ID   string
 	Name string
-	Role httpserver.Role
+	Role access.Role
 }
 
 // IssuedKey is returned once, at creation. Token is the only time the full key is available.
@@ -85,7 +85,7 @@ type IssuedKey struct {
 }
 
 // CreateClient registers a client with a role.
-func (a *Admin) CreateClient(ctx context.Context, name string, role httpserver.Role) (Client, error) {
+func (a *Admin) CreateClient(ctx context.Context, name string, role access.Role) (Client, error) {
 	if name == "" || len(name) > maxNameLength {
 		return Client{}, sharederrors.Invalid(CodeInvalidName, "client names have 1 to 128 characters")
 	}

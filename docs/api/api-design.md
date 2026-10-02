@@ -92,7 +92,7 @@ The server and its types are generated from it; routes, access policies and the 
 | Operation | Path | Access | Notes |
 |-----------|------|--------|-------|
 | `getHealthz` | `GET /healthz` | public | Liveness. Unversioned, no dependency checks. |
-| `getReadyz` | `GET /readyz` | public | `ready` or `degraded` give 200; `not_ready` (critical check failing, or shutting down) gives 503. |
+| `getReadyz` | `GET /readyz` | public | `ready` or `degraded` give 200; `not_ready` (critical check failing, or shutting down) gives 503. The result is cached for one second, so a flood of probes cannot become database load. |
 | `getWhoami` | `GET /v1/whoami` | permission `whoami:read` | Returns the calling client and role. Closed (401) until the API-key authenticator lands in S4. |
 
 Conventions in force: every response carries `X-Request-Id`; every error uses the `ErrorResponse` envelope with a stable `code`;

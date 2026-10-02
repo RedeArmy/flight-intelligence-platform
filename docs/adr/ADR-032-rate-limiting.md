@@ -11,7 +11,7 @@ SR-08 requires limits on request volume, SR-23 requires that authentication fail
 ## Decision
 **Algorithm.** Token bucket. A rule is `Limit` tokens refilled evenly over `Window`; `Limit` is both the burst size and the average rate. Buckets are named by a key and stored per key.
 
-**Three limits on protected routes**, checked in this order (health probes are never limited):
+**Three limits on protected routes**, checked in this order (health probes are never limited; see the amendment below for the order of 3 and authorisation):
 1. `ip:<address>`: every request from one address, before any authentication work, so floods are cheap to refuse. Default 300 per minute.
 2. `authfail:<address>`: failed authentications from one address. It is **checked before the key is verified** (a peek that takes nothing) and **charged only when authentication fails with a 401**. An address that has used up its failures gets `429` and never reaches the key check, so guessing is throttled rather than merely logged. Default 10 per minute. A store outage (503) is not charged: an outage must not lock clients out. Valid requests are not charged.
 3. `client:<client id>:<operation class>`: requests of one authenticated client, bucketed by operation class (`read` now; `search` and `verify` when those routes exist). Default 600 per minute.
@@ -20,7 +20,7 @@ SR-08 requires limits on request volume, SR-23 requires that authentication fail
 
 **Adapters** (`platform/ratelimit`, consumed through a port defined in `httpserver`):
 - Redis: one Lua script per call, atomic, using the Redis server clock so instances with different clocks share one bucket. Keys are namespaced `fip:rl:` and expire with their window. A test proves that 50 concurrent callers can take exactly the bucket's size and no more.
-- Memory: per process, bounded (100 000 buckets; buckets that have refilled are swept and an arbitrary one is evicted at the cap), so a flood of distinct keys cannot exhaust memory.
+- Memory: per process, bounded (100 000 buckets; buckets that have refilled are swept and, at the cap, the fullest of a random sample of 16 buckets is evicted: a nearly full bucket is the cheapest to forget, and the buckets of clients being limited are kept), so a flood of distinct keys cannot exhaust memory.
 - Fallback: tries Redis; on any error uses the memory limiter with **half** of each limit (a single process cannot know how many instances share the load, so it is deliberately conservative) and does not try Redis again for five seconds, so a dead Redis costs one short attempt, not one per request. The transition and the recovery are logged once each.
 
 **Redis is optional.** Without `REDIS_ADDR` the API runs with the memory limiter only and logs a warning that limits are per instance. With it, Redis appears in `/readyz` as a non-critical check: a failure reports `degraded`, never `not_ready` (ADR-004). Redis connections use short timeouts and no retries, TLS is on by default and required in staging and production, and the optional password is the secret `redis_password`.
@@ -42,9 +42,15 @@ SR-08 requires limits on request volume, SR-23 requires that authentication fail
 ## Consequences
 + Floods are refused before authentication; guessing keys is throttled before each verification; one noisy client cannot starve others.
 + Redis loss reduces precision (per-instance, stricter) without taking the API down.
-- Behind a proxy all clients share a bucket until trusted-proxy support exists; the limits are per address, so large shared networks (NAT) can be limited together.
+- Behind a proxy all clients share a bucket until trusted-proxy support exists; the limits are per address (per /64 network for IPv6), so large shared networks (NAT) can be limited together.
 - During a Redis outage the effective fleet-wide limit is the per-instance limit times the number of instances, scaled by one half; it is a safety net, not an exact limit.
 - Per-minute limits are global defaults; per-route and per-client overrides are future work.
 
 ## Rejected options
 Trusting client-supplied address headers; unbounded in-memory maps; storing anything but counters in Redis; returning different errors for different authentication failures to explain a throttle.
+
+## Amendment 2026-10-02 (E1 engineering review)
+- **Client limit before authorisation.** The order is now address, failed-authentication peek, authentication, **client limit**, then authorisation. A caller probing routes it may not use consumes its own client tokens, so the `authz.denied` audit rows it causes are bounded by its client limit, not only by the address limit.
+- **IPv6 is limited per /64.** One IPv6 subscriber controls a /64 or more, so per-address buckets gave it unlimited buckets. IPv4-mapped addresses are treated as IPv4. The access log still records the full address.
+- **Eviction** samples instead of removing an arbitrary bucket, as described under the memory adapter.
+- **Readiness is cached for one second** and evaluated once however many callers ask (`httpserver.DefaultReadinessCacheTTL`), so the public `/readyz` cannot turn anonymous traffic into PostgreSQL and Redis load. Draining is applied on every call. The probes are also excluded from traces and request metrics.

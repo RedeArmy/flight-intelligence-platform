@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 
+	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/access"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/httpserver/openapi"
 	"github.com/RedeArmy/flight-intelligence-platform/internal/platform/observability/logging"
 	sharederrors "github.com/RedeArmy/flight-intelligence-platform/internal/shared/errors"
@@ -33,7 +34,7 @@ func (a *api) GetReadyz(ctx context.Context, _ openapi.GetReadyzRequestObject) (
 }
 
 func (a *api) GetWhoami(ctx context.Context, _ openapi.GetWhoamiRequestObject) (openapi.GetWhoamiResponseObject, error) {
-	p, ok := PrincipalFrom(ctx)
+	p, ok := access.PrincipalFrom(ctx)
 	if !ok {
 		// The policy middleware guarantees a principal on protected routes; reaching here is a wiring bug.
 		return nil, sharederrors.Internal(sharederrors.CodeInternal, "internal error")

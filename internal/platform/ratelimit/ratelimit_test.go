@@ -205,3 +205,15 @@ func TestFallbackSurfacesALocalFailure(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestMemoryEvictionKeepsTheBucketsThatAreLimiting(t *testing.T) {
+	m := NewMemory(clock.NewFake(t0), 3)
+	allow(t, m, "hot", 6) // empty: this client is being limited right now
+	allow(t, m, "a", 1)
+	allow(t, m, "b", 1)
+	allow(t, m, "c", 1) // the table is full: one of the nearly full buckets goes, not "hot"
+
+	if d := allow(t, m, "hot", 1); d.Allowed {
+		t.Fatal("evicting the exhausted bucket would hand its client a fresh burst")
+	}
+}
