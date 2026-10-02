@@ -37,7 +37,7 @@ gh api repos/RedeArmy/flight-intelligence-platform/rulesets --method POST --inpu
 
 ## Adding checks later
 
-Add jobs to `ci.yml` and list them in the `needs` of `ci-gate`. The ruleset keeps requiring only `ci-gate`, so it does not change.
+Add jobs to `ci.yml` and list them in the `needs` of `ci-gate` (jobs that may legitimately be skipped, such as `dependency-review`, are listed in its `optional` set). The ruleset keeps requiring only `ci-gate`, so it does not change.
 To make SonarCloud's own PR status mandatory as well, see [sonarcloud.md](sonarcloud.md).
 
 ## Changing the rule
