@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -46,8 +46,8 @@ func TestHealthcheckURL(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			lookup := func(k string) (string, bool) { return c.addr, c.set && k == "HTTP_ADDR" }
-			got, err := healthcheckURL(lookup)
+			lookup := func(k string) (string, bool) { return c.addr, c.set && k == "SERVICE_ADDR" }
+			got, err := HealthcheckURL(lookup, "SERVICE_ADDR", ":8080")
 			if c.bad {
 				if err == nil {
 					t.Fatalf("got %q, want an error", got)
@@ -68,13 +68,13 @@ func TestHealthcheckExitCodes(t *testing.T) {
 	}
 	t.Run("healthy", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if code := healthcheck(ctx, lookupPort(serveOn(t, http.StatusOK, 0)), http.DefaultClient, &stderr); code != 0 || stderr.Len() != 0 {
+		if code := Healthcheck(ctx, lookupPort(serveOn(t, http.StatusOK, 0)), "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr); code != 0 || stderr.Len() != 0 {
 			t.Fatalf("code %d stderr %q", code, stderr.String())
 		}
 	})
 	t.Run("server error", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if code := healthcheck(ctx, lookupPort(serveOn(t, http.StatusServiceUnavailable, 0)), http.DefaultClient, &stderr); code != 1 || !strings.Contains(stderr.String(), "503") {
+		if code := Healthcheck(ctx, lookupPort(serveOn(t, http.StatusServiceUnavailable, 0)), "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr); code != 1 || !strings.Contains(stderr.String(), "503") {
 			t.Fatalf("code %d stderr %q", code, stderr.String())
 		}
 	})
@@ -86,14 +86,14 @@ func TestHealthcheckExitCodes(t *testing.T) {
 		_, port, _ := net.SplitHostPort(l.Addr().String())
 		_ = l.Close()
 		var stderr bytes.Buffer
-		if code := healthcheck(ctx, lookupPort(port), http.DefaultClient, &stderr); code != 1 || stderr.Len() == 0 {
+		if code := Healthcheck(ctx, lookupPort(port), "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr); code != 1 || stderr.Len() == 0 {
 			t.Fatalf("code %d stderr %q", code, stderr.String())
 		}
 	})
 	t.Run("bad address", func(t *testing.T) {
 		var stderr bytes.Buffer
 		lookup := func(string) (string, bool) { return "nonsense", true }
-		if code := healthcheck(ctx, lookup, http.DefaultClient, &stderr); code != 1 {
+		if code := Healthcheck(ctx, lookup, "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr); code != 1 {
 			t.Fatalf("code %d", code)
 		}
 	})
@@ -101,7 +101,7 @@ func TestHealthcheckExitCodes(t *testing.T) {
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
 		var stderr bytes.Buffer
-		if code := healthcheck(cancelled, lookupPort(serveOn(t, http.StatusOK, 0)), http.DefaultClient, &stderr); code != 1 {
+		if code := Healthcheck(cancelled, lookupPort(serveOn(t, http.StatusOK, 0)), "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr); code != 1 {
 			t.Fatalf("code %d: a cancelled probe must fail", code)
 		}
 	})
@@ -111,7 +111,7 @@ func TestHealthcheckIsBoundedInTime(t *testing.T) {
 	port := serveOn(t, http.StatusOK, 5*time.Second) // slower than the probe timeout
 	var stderr bytes.Buffer
 	start := time.Now()
-	code := healthcheck(context.Background(), func(string) (string, bool) { return "127.0.0.1:" + port, true }, http.DefaultClient, &stderr)
+	code := Healthcheck(context.Background(), func(string) (string, bool) { return "127.0.0.1:" + port, true }, "SERVICE_ADDR", ":8080", http.DefaultClient, &stderr)
 	if code != 1 || time.Since(start) > healthcheckTimeout+time.Second {
 		t.Fatalf("code %d after %v: a hung server must fail the probe within its timeout", code, time.Since(start))
 	}

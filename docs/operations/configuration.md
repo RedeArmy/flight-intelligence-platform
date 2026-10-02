@@ -53,6 +53,11 @@ Durations use Go syntax (`500ms`, `5s`, `2m`) and must be greater than zero.
 
 Limits are token buckets: the number is both the burst size and the average per minute.
 
+## Worker
+| Key | Type | Default | Required | Meaning |
+|-----|------|---------|----------|---------|
+| `WORKER_HEALTH_ADDR` | host:port | `127.0.0.1:8082` | no | Listener of the worker's `/healthz` and `/readyz`. Only the worker reads it. Loopback by default: the container runtime probes it from inside the container. |
+
 ## Telemetry
 | Key | Type | Default | Required | Meaning |
 |-----|------|---------|----------|---------|

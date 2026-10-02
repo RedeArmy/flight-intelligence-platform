@@ -203,7 +203,6 @@ func TestNewValidatesOptions(t *testing.T) {
 	cases := map[string]Options{
 		"no logger":           {Public: h, Operator: h, ShutdownTimeout: time.Second},
 		"no public handler":   {Logger: tl.Logger, Operator: h, ShutdownTimeout: time.Second},
-		"no operator handler": {Logger: tl.Logger, Public: h, ShutdownTimeout: time.Second},
 		"no shutdown timeout": {Logger: tl.Logger, Public: h, Operator: h},
 	}
 	for name, opts := range cases {
@@ -213,6 +212,9 @@ func TestNewValidatesOptions(t *testing.T) {
 	}
 	if _, err := New(Options{Logger: tl.Logger, Public: h, Operator: h, ShutdownTimeout: time.Second}); err != nil {
 		t.Errorf("valid options rejected: %v", err)
+	}
+	if _, err := New(Options{Logger: tl.Logger, Public: h, ShutdownTimeout: time.Second}); err != nil {
+		t.Errorf("a single listener (no operator handler) must be accepted: %v", err)
 	}
 }
 

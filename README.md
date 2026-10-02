@@ -41,7 +41,7 @@ curl -i http://localhost:8080/healthz
 ### Local stack (Docker Compose)
 ```bash
 make dev                  # infrastructure: PostgreSQL, Redis, collector, Jaeger (16686), Prometheus (9090)
-make stack                # plus the migrations and the API in containers (http://127.0.0.1:8080)
+make stack                # plus the migrations, the API (http://127.0.0.1:8080) and the worker in containers
 make keyctl ARGS="client create -name my-app -role DEVELOPER"   # operator tool in a container
 make restore-drill        # prove the database can be restored from a backup
 make dev-down             # stop everything, keeping the data volumes
@@ -60,6 +60,9 @@ The runtime role (`fip_app`) cannot change the schema or alter the audit log; se
 
 ### Rate limiting
 Protected routes are limited per address, per failed authentication and per client ([ADR-032](docs/adr/ADR-032-rate-limiting.md)); a limited call gets `429` with `Retry-After`. Set `REDIS_ADDR` (and `REDIS_TLS=false` for a local Redis) to share counters between instances; without it limits apply per instance. Defaults and keys are in [configuration](docs/operations/configuration.md).
+
+### Worker
+`cmd/worker` is the background worker ([ADR-035](docs/adr/ADR-035-worker-process-and-queue-contract.md)). It runs no jobs yet; it has the API's lifecycle (configuration, logging, telemetry, graceful shutdown) and serves only `/healthz` and `/readyz` on `WORKER_HEALTH_ADDR` (loopback, `127.0.0.1:8082` by default). Run it on the host with `go run ./cmd/worker`.
 
 ### Observability
 Logs carry `request_id`, `trace_id` and `span_id`. To export traces and metrics set `TELEMETRY_OTLP_ENDPOINT` (for example `http://127.0.0.1:4318`) and run the collector from `deployments/local/otel-collector.yaml`; what is emitted is listed in [telemetry](docs/operations/telemetry.md) ([ADR-033](docs/adr/ADR-033-telemetry-implementation.md)).

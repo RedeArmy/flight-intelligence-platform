@@ -12,8 +12,9 @@ import (
 
 // Options configures a Server. Addresses and timeouts come from config.HTTP.
 type Options struct {
-	Logger   *slog.Logger
-	Public   http.Handler
+	Logger *slog.Logger
+	Public http.Handler
+	// Operator is the handler of the second, operator-only listener. Nil runs a single listener (the worker).
 	Operator http.Handler
 	// Health is told to report not ready as soon as shutdown starts. May be nil.
 	Health *Health
@@ -26,11 +27,12 @@ type Options struct {
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
 
-	// OnListening is called once both listeners are bound, with their actual addresses (useful with port 0).
+	// OnListening is called once the listeners are bound, with their actual addresses (useful with port 0). The
+	// operator address is nil when there is no operator listener.
 	OnListening func(public, operator net.Addr)
 }
 
-// Server runs the public and operator listeners and shuts both down gracefully.
+// Server runs the public listener and, when configured, the operator listener, and shuts them down gracefully.
 type Server struct {
 	opts Options
 }
@@ -40,8 +42,8 @@ func New(opts Options) (*Server, error) {
 	switch {
 	case opts.Logger == nil:
 		return nil, errors.New("httpserver: Logger is required")
-	case opts.Public == nil || opts.Operator == nil:
-		return nil, errors.New("httpserver: Public and Operator handlers are required")
+	case opts.Public == nil:
+		return nil, errors.New("httpserver: the Public handler is required")
 	case opts.ShutdownTimeout <= 0:
 		return nil, errors.New("httpserver: ShutdownTimeout must be positive")
 	}
@@ -69,29 +71,46 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen on public address: %w", err)
 	}
-	opLn, err := lc.Listen(ctx, "tcp", s.opts.OperatorAddr)
-	if err != nil {
-		_ = pubLn.Close()
-		return fmt.Errorf("listen on operator address: %w", err)
+	var opLn net.Listener
+	if s.opts.Operator != nil {
+		if opLn, err = lc.Listen(ctx, "tcp", s.opts.OperatorAddr); err != nil {
+			_ = pubLn.Close()
+			return fmt.Errorf("listen on operator address: %w", err)
+		}
 	}
 
-	pub, op := s.newHTTPServer(s.opts.Public), s.newHTTPServer(s.opts.Operator)
+	// Each goroutine gets its own server variable: they must not read a slice that this function appends to.
+	pub := s.newHTTPServer(s.opts.Public)
+	servers := []*http.Server{pub}
 	errCh := make(chan error, 2)
 	go func() { errCh <- serve("public", pub, pubLn) }()
-	go func() { errCh <- serve("operator", op, opLn) }()
+	var opAddr net.Addr
+	if opLn != nil {
+		op := s.newHTTPServer(s.opts.Operator)
+		servers = append(servers, op)
+		opAddr = opLn.Addr()
+		go func() { errCh <- serve("operator", op, opLn) }()
+	}
 
 	if s.opts.OnListening != nil {
-		s.opts.OnListening(pubLn.Addr(), opLn.Addr())
+		s.opts.OnListening(pubLn.Addr(), opAddr)
 	}
-	s.opts.Logger.InfoContext(ctx, "http listeners started",
-		"public_addr", pubLn.Addr().String(), "operator_addr", opLn.Addr().String())
+	s.logStarted(ctx, pubLn.Addr(), opAddr)
 
 	var serveErr error
 	select {
 	case <-ctx.Done():
 	case serveErr = <-errCh:
 	}
-	return errors.Join(serveErr, s.shutdown(ctx, pub, op))
+	return errors.Join(serveErr, s.shutdown(ctx, servers...))
+}
+
+func (s *Server) logStarted(ctx context.Context, public, operator net.Addr) {
+	if operator == nil {
+		s.opts.Logger.InfoContext(ctx, "http listener started", "addr", public.String())
+		return
+	}
+	s.opts.Logger.InfoContext(ctx, "http listeners started", "public_addr", public.String(), "operator_addr", operator.String())
 }
 
 func serve(name string, srv *http.Server, ln net.Listener) error {

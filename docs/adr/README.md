@@ -40,4 +40,5 @@ change needs an ADR (Constitution P15). Number sequentially; never delete, super
 | [032](ADR-032-rate-limiting.md) | Rate limiting: token buckets, Redis with a local fallback, failed-authentication throttling | Accepted |
 | [033](ADR-033-telemetry-implementation.md) | Telemetry implementation: OTLP/HTTP, local providers, untrusted trace context, bounded labels | Accepted |
 | [034](ADR-034-container-images-and-local-stack.md) | Container images and the local stack | Accepted |
+| [035](ADR-035-worker-process-and-queue-contract.md) | Worker process, shared service startup and the queue contract | Accepted |
 

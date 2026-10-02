@@ -32,7 +32,7 @@ collector translates the OpenTelemetry names: dots become underscores, counters 
 
 Each public request is a new root trace; a caller's `traceparent` is attached as a link (ADR-033). Spans never carry paths with identifiers, query strings, headers, bodies, SQL text, arguments, client addresses or error messages. Server errors (5xx) mark the span as an error with no message.
 
-Resource attributes: `service.name` (`api`), `service.version`, `deployment.environment.name`.
+Resource attributes: `service.name` (`api` or `worker`), `service.version`, `deployment.environment.name`. Every metric above is emitted by both processes except `auth.failures` and `rate.limited`, which only the API records; filter by the `job` label in Prometheus.
 
 ## Logs
 
