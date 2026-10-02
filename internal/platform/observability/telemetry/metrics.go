@@ -23,6 +23,12 @@ const (
 	metricRateLimited = "rate.limited"
 )
 
+// UCUM annotation units: counts of things, written in braces.
+const (
+	unitRequest    = "{request}"
+	unitConnection = "{connection}"
+)
+
 // durationBuckets are the latency histogram boundaries in seconds.
 var durationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
@@ -42,7 +48,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		err error
 	)
 	if m.requests, err = meter.Int64Counter(metricRequests,
-		metric.WithUnit("{request}"), metric.WithDescription("HTTP requests handled, by method, route and status")); err != nil {
+		metric.WithUnit(unitRequest), metric.WithDescription("HTTP requests handled, by method, route and status")); err != nil {
 		return nil, fmt.Errorf("telemetry: %s: %w", metricRequests, err)
 	}
 	if m.duration, err = meter.Float64Histogram(metricDuration,
@@ -51,7 +57,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		return nil, fmt.Errorf("telemetry: %s: %w", metricDuration, err)
 	}
 	if m.active, err = meter.Int64UpDownCounter(metricActive,
-		metric.WithUnit("{request}"), metric.WithDescription("HTTP requests in flight")); err != nil {
+		metric.WithUnit(unitRequest), metric.WithDescription("HTTP requests in flight")); err != nil {
 		return nil, fmt.Errorf("telemetry: %s: %w", metricActive, err)
 	}
 	if m.authFail, err = meter.Int64Counter(metricAuthFail,
@@ -59,7 +65,7 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 		return nil, fmt.Errorf("telemetry: %s: %w", metricAuthFail, err)
 	}
 	if m.rateLimited, err = meter.Int64Counter(metricRateLimited,
-		metric.WithUnit("{request}"), metric.WithDescription("Requests refused by a rate limit, by limit")); err != nil {
+		metric.WithUnit(unitRequest), metric.WithDescription("Requests refused by a rate limit, by limit")); err != nil {
 		return nil, fmt.Errorf("telemetry: %s: %w", metricRateLimited, err)
 	}
 	return &m, nil
@@ -115,15 +121,15 @@ type PoolStats struct {
 
 // RegisterPool exposes pool saturation as gauges.
 func RegisterPool(meter metric.Meter, stats func() PoolStats) error {
-	acquired, err := meter.Int64ObservableGauge("db.pool.acquired_connections", metric.WithUnit("{connection}"))
+	acquired, err := meter.Int64ObservableGauge("db.pool.acquired_connections", metric.WithUnit(unitConnection))
 	if err != nil {
 		return fmt.Errorf("telemetry: db.pool.acquired_connections: %w", err)
 	}
-	idle, err := meter.Int64ObservableGauge("db.pool.idle_connections", metric.WithUnit("{connection}"))
+	idle, err := meter.Int64ObservableGauge("db.pool.idle_connections", metric.WithUnit(unitConnection))
 	if err != nil {
 		return fmt.Errorf("telemetry: db.pool.idle_connections: %w", err)
 	}
-	maxConns, err := meter.Int64ObservableGauge("db.pool.max_connections", metric.WithUnit("{connection}"))
+	maxConns, err := meter.Int64ObservableGauge("db.pool.max_connections", metric.WithUnit(unitConnection))
 	if err != nil {
 		return fmt.Errorf("telemetry: db.pool.max_connections: %w", err)
 	}
