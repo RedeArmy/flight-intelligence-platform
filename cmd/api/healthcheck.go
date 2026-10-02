@@ -25,27 +25,29 @@ const healthcheckTimeout = 3 * time.Second
 func healthcheck(ctx context.Context, lookup config.Lookup, client *http.Client, stderr io.Writer) int {
 	target, err := healthcheckURL(lookup)
 	if err != nil {
-		fmt.Fprintln(stderr, "healthcheck:", err)
-		return 1
+		return probeFailed(stderr, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, healthcheckTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		fmt.Fprintln(stderr, "healthcheck:", err)
-		return 1
+		return probeFailed(stderr, err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintln(stderr, "healthcheck:", err)
-		return 1
+		return probeFailed(stderr, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintln(stderr, "healthcheck: unexpected status", resp.StatusCode)
-		return 1
+		return probeFailed(stderr, "unexpected status", resp.StatusCode)
 	}
 	return 0
+}
+
+// probeFailed reports why the probe failed on stderr, where the container runtime records it, and returns the exit code.
+func probeFailed(stderr io.Writer, reason ...any) int {
+	fmt.Fprintln(stderr, append([]any{"healthcheck:"}, reason...)...)
+	return 1
 }
 
 // healthcheckURL builds the probe URL from HTTP_ADDR. The probe always uses the loopback address: the check runs inside
@@ -62,5 +64,7 @@ func healthcheckURL(lookup config.Lookup) (string, error) {
 	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
 		return "", fmt.Errorf("HTTP_ADDR %q has no usable port", addr)
 	}
-	return "http://" + net.JoinHostPort("127.0.0.1", port) + "/healthz", nil
+	// Plain HTTP on purpose: this is a probe of the server's own loopback listener inside the same container, and the API
+	// serves plain HTTP and leaves TLS to the edge in front of it. Nothing leaves the machine.
+	return "http://" + net.JoinHostPort("127.0.0.1", port) + "/healthz", nil // NOSONAR
 }
