@@ -122,7 +122,7 @@ services:
   # Dashboards. Stateless: the data source and the dashboards are provisioned from files and the admin password comes from a
   # secret, so nothing lives in the container (the state directory is a tmpfs). Not reachable except from this machine.
   grafana:
-    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
